@@ -118,9 +118,10 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
     graph_score = int(trust_score * 1000)
     ml_score = ml_result["ml_score"]
 
-    # Weights: formula carries the most weight (50%) because it is the most
-    # explainable signal. Graph and ML each contribute 25% as corroborating layers.
-    final_fused = int(0.50 * formula_score + 0.25 * graph_score + 0.25 * ml_score)
+    # Weights: formula (70%) + graph (30%). ML is shadow mode — advisory only.
+    # ML model was trained on synthetic data; it will be retrained on real
+    # repayment outcomes after 12–18 months of production data collection.
+    final_fused = int(0.70 * formula_score + 0.30 * graph_score)
     final_fused = max(0, min(1000, final_fused))
 
     band = compute_score_band(final_fused)
@@ -131,6 +132,11 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         graph_score=graph_score,
         ml_score=ml_score,
         final_fused=final_fused,
+        ml_note=(
+            "Formula carries 70% weight reflecting behavioral data reliability. "
+            "Graph carries 30% reflecting network size — weight increases as merchant "
+            "network grows. ML runs in shadow mode."
+        ),
     )
 
     # --- Loan amount (override or seed data) ---
@@ -254,8 +260,8 @@ def score_merchant(request: ScoreRequest) -> ScoreResponse:
       1. Load merchant from DB / JSON
       2. Formula layer  — behavioural signals + psychometric floor
       3. Graph layer    — PageRank social trust from vouch network
-      4. ML layer       — XGBoost pattern recognition (second opinion)
-      5. Fuse scores    — 50% formula + 25% graph + 25% ML
+      4. ML layer       — XGBoost pattern recognition (advisory / shadow mode)
+      5. Fuse scores    — 70% formula + 30% graph (ML excluded until real data)
       6. Gate check     — fraud ring + loan-to-ceiling ratio
       7. AI narrative   — Ollama LLM summary (non-blocking)
 

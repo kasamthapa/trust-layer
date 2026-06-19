@@ -41,8 +41,9 @@ class LayerBreakdown(BaseModel):
     """The three independent scoring layers before fusion."""
     formula_score: int  # 300–850 equivalent from scoring.py formula
     graph_score: int    # 300–850 equivalent from PageRank trust
-    ml_score: int       # 300–850 equivalent from XGBoost band
-    final_fused: int    # weighted blend of all three
+    ml_score: int       # 300–850 equivalent from XGBoost band (advisory only)
+    final_fused: int    # weighted blend: 60% formula + 40% graph (ML is shadow mode)
+    ml_note: str        # why ML is excluded from fusion
 
 
 # ---------------------------------------------------------------------------

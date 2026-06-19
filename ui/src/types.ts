@@ -16,8 +16,9 @@ export interface SHAPItem {
 export interface LayerBreakdown {
   formula_score: number
   graph_score: number
-  ml_score: number
-  final_fused: number
+  ml_score: number        // advisory only — not included in final_fused
+  final_fused: number     // 60% formula + 40% graph
+  ml_note: string
 }
 
 export interface FairnessAudit {
