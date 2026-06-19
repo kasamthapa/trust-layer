@@ -25,7 +25,7 @@ import networkx as nx
 import community as community_louvain  # python-louvain
 
 from config.settings import SEED_DATA_PATH
-from src.scoring import get_all_merchants
+from src.scoring import get_all_merchants, load_merchants_from_db
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -69,7 +69,9 @@ def build_graph() -> nx.DiGraph:
     G = nx.DiGraph()
 
     # --- Add nodes ---
-    for m in get_all_merchants():
+    # load_merchants_from_db() tries PostgreSQL first and falls back to JSON
+    # automatically, so this function works with or without a live database.
+    for m in load_merchants_from_db():
         G.add_node(
             m["id"],
             name=m["name"],

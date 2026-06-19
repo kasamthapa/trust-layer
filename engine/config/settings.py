@@ -23,3 +23,6 @@ SCORE_BAND_GOLD: int = int(os.getenv("SCORE_BAND_GOLD", "500"))
 SCORE_BAND_SILVER: int = int(os.getenv("SCORE_BAND_SILVER", "350"))
 
 APP_VERSION: str = os.getenv("APP_VERSION", "1.0.0")
+
+# NeonDB / PostgreSQL connection string
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")

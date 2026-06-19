@@ -15,6 +15,7 @@ Pipeline per merchant:
 """
 
 import json
+import logging
 import os
 from functools import lru_cache
 from typing import Optional
@@ -27,6 +28,8 @@ from config.settings import (
     SCORE_BAND_SILVER,
     SEED_DATA_PATH,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -55,6 +58,95 @@ def get_merchant(merchant_id: str) -> Optional[dict]:
 
 def get_all_merchants() -> list[dict]:
     """Return all merchants (thin wrapper kept for API readability)."""
+    return load_merchants()
+
+
+# ---------------------------------------------------------------------------
+# Database-backed data access (with JSON fallback)
+# ---------------------------------------------------------------------------
+
+def _row_to_merchant(row: tuple, columns: list[str]) -> dict:
+    """Convert a psycopg2 row tuple + column list into a merchant dict.
+
+    The DB stores the group field as `group_label` to avoid conflicting with
+    the SQL reserved word GROUP. We remap it back to `group` here so the rest
+    of the codebase never sees the difference.
+    """
+    m = dict(zip(columns, row))
+    # Remap DB column name to the canonical field name used everywhere else.
+    if "group_label" in m:
+        m["group"] = m.pop("group_label")
+    return m
+
+
+def get_all_merchants_db() -> list[dict]:
+    """Read all merchants from PostgreSQL.
+
+    Returns an empty list (not an exception) if the DB is unreachable,
+    so callers can fall through to the JSON fallback.
+    """
+    try:
+        from src.database import get_connection  # lazy import avoids circular deps
+        conn = get_connection()
+        if conn is None:
+            return []
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, name, phone, location, occupation, group_label, "
+                    "months_active, bill_payment_ratio, qr_transaction_consistency, "
+                    "airtime_topup_frequency, psychometric_score, network_trust_score, "
+                    "transaction_volatility, days_since_last_transaction, "
+                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr "
+                    "FROM merchants ORDER BY id"
+                )
+                columns = [desc[0] for desc in cur.description]
+                return [_row_to_merchant(row, columns) for row in cur.fetchall()]
+    except Exception as exc:
+        logger.warning("get_all_merchants_db failed: %s", exc)
+        return []
+
+
+def get_merchant_db(merchant_id: str) -> Optional[dict]:
+    """Read a single merchant from PostgreSQL by id.
+
+    Returns None (not an exception) if the DB is unreachable or the merchant
+    does not exist, so callers can fall through to the JSON fallback.
+    """
+    try:
+        from src.database import get_connection
+        conn = get_connection()
+        if conn is None:
+            return None
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, name, phone, location, occupation, group_label, "
+                    "months_active, bill_payment_ratio, qr_transaction_consistency, "
+                    "airtime_topup_frequency, psychometric_score, network_trust_score, "
+                    "transaction_volatility, days_since_last_transaction, "
+                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr "
+                    "FROM merchants WHERE id = %s",
+                    (merchant_id,),
+                )
+                columns = [desc[0] for desc in cur.description]
+                row = cur.fetchone()
+                return _row_to_merchant(row, columns) if row else None
+    except Exception as exc:
+        logger.warning("get_merchant_db failed for %s: %s", merchant_id, exc)
+        return None
+
+
+def load_merchants_from_db() -> list[dict]:
+    """Try the database first; fall back to JSON seed data silently.
+
+    This is the preferred entry point for the graph engine and API routes
+    so they automatically benefit from live DB data when available.
+    """
+    merchants = get_all_merchants_db()
+    if merchants:
+        return merchants
+    logger.info("Database unavailable or empty — loading merchants from JSON seed data.")
     return load_merchants()
 
 
