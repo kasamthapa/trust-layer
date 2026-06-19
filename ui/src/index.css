@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  --color-bg:           #0f0e1a;
+  --color-card:         #1a1833;
+  --color-primary:      #1e1b4b;
+  --color-trust:        #3730a3;
+  --color-accent:       #6366f1;
+  --color-success:      #10b981;
+  --color-warning:      #f59e0b;
+  --color-danger:       #ef4444;
+  --color-text:         #f1f5f9;
+  --color-text-muted:   #94a3b8;
+  --color-border:       #2d2b52;
+  --color-border-light: #3d3b62;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+  /* Subtle dot-grid — gives the page a technical infrastructure feel */
+  background-image: radial-gradient(circle, #2d2b52 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-attachment: fixed;
+}
+
+/* Darken the grid slightly so it doesn't compete with content */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(160deg, rgba(30,27,75,0.55) 0%, rgba(15,14,26,0.82) 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: #1a1833; }
+::-webkit-scrollbar-thumb  { background: #3730a3; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+
+/* ── Card glow on hover ─────────────────────────────────────────────────── */
+.tl-card {
+  background: #1a1833;
+  border: 1px solid #2d2b52;
+  border-radius: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.tl-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.25), 0 4px 24px rgba(99,102,241,0.12);
+}
+
+/* ── Stat pill ──────────────────────────────────────────────────────────── */
+.tl-stat-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  border: 1px solid #2d2b52;
+  background: rgba(26,24,51,0.8);
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+/* ── Badge variants ─────────────────────────────────────────────────────── */
+.badge-accent  { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+.badge-success { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+.badge-warn    { background: rgba(245,158,11,0.12);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.25);  border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+
+/* ── Tailwind v4 custom theme ───────────────────────────────────────────── */
+@theme {
+  --color-tl-bg:           #0f0e1a;
+  --color-tl-card:         #1a1833;
+  --color-tl-primary:      #1e1b4b;
+  --color-tl-trust:        #3730a3;
+  --color-tl-accent:       #6366f1;
+  --color-tl-success:      #10b981;
+  --color-tl-warning:      #f59e0b;
+  --color-tl-danger:       #ef4444;
+  --color-tl-text:         #f1f5f9;
+  --color-tl-muted:        #94a3b8;
+  --color-tl-border:       #2d2b52;
+  --color-tl-border-light: #3d3b62;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
