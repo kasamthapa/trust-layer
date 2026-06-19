@@ -1,15 +1,21 @@
 """
 fairness.py — TrustLayer fairness audit engine.
 
-Measures whether merchants from different community groups receive equal
+Measures whether merchants from different socioeconomic segments receive equal
 treatment when they have equal creditworthiness signals.
+
+Group labels describe business context and geography, not ethnicity or caste:
+  urban_established  — long-operating businesses in city centres
+  urban_emerging     — newer businesses in urban or peri-urban areas
+  rural_traditional  — community-based businesses in semi-urban/rural settings
+  rural_underserved  — businesses in historically underserved areas
+  peri_urban         — businesses on the urban fringe or in border communities
 
 Design philosophy
 -----------------
-TrustLayer never uses caste, ethnicity, or community group as a scoring
-input. The `group` field exists solely so this audit module can check that
-the features we DO use (bills, QR, airtime, network) are not acting as
-proxies for social identity.
+TrustLayer never uses socioeconomic segment as a scoring input. The `group`
+field exists solely so this audit module can check that the features we DO use
+(bills, QR, airtime, network) are not acting as proxies for background or location.
 
 Two key principles enforced here:
 
@@ -19,15 +25,17 @@ Two key principles enforced here:
      zero-history merchants are evaluated on potential, not absence.
 
   2. Community trust is capped at 25% of the final score.
-     The social graph is powerful but could re-encode historical inequalities
-     if given too much weight (e.g. groups with historically weaker networks
+     The social graph is powerful but could re-encode structural inequalities
+     if given too much weight (e.g. segments with historically weaker networks
      scoring lower purely due to fewer connections). Capping the graph
      contribution at 25% means behaviour always dominates.
 
 The audit compares group-average scores before and after graph fusion to
-verify that the cap is working as intended and that the gap between groups
+verify that the cap is working as intended and that the gap between segments
 does not widen when social signals are introduced.
 """
+
+from typing import Optional
 
 from src.scoring import (
     compute_confidence,
@@ -217,4 +225,182 @@ def get_thin_file_analysis() -> dict:
         "avg_score_established": avg_established,
         "thin_file_ids": [m["id"] for m in thin_file],
         "floor_explanation": floor_explanation,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-merchant fairness audit
+# ---------------------------------------------------------------------------
+
+# Score adjustment caps — prevent the fairness boost from dominating the result.
+_VERY_THIN_BOOST = 30   # < 6 months active
+_THIN_BOOST = 20        # 6–11 months active
+_LOW_VOUCHER_BOOST = 12 # network trust below 0.4 (sparse connections, not distrust)
+_SEASONAL_BOOST = 10    # high cashflow volatility (seasonal trade pattern)
+_MAX_ADJUSTMENT = 50    # hard ceiling on total fairness correction
+
+# Thresholds
+_FULL_HISTORY_MONTHS = 12   # above this = established, no thin-file boost
+_VERY_THIN_MONTHS = 6       # below this = very thin file
+_LOW_VOUCHER_THRESHOLD = 0.4
+_SEASONAL_THRESHOLD = 0.6   # stability = 1 - volatility; below this = seasonal
+_RISKY_BILL_THRESHOLD = 0.6
+
+
+def compute_merchant_fairness(
+    merchant: dict,
+    base_score: int,
+    gate_status: str,
+    fraud_flagged: bool,
+) -> dict:
+    """
+    Compute a per-merchant fairness audit and optional score correction.
+
+    Core principle: missing data lowers confidence, not eligibility.
+    This function separates two categories:
+
+      1. Data gaps   — thin history, sparse network, seasonal cashflow.
+                       These are NOT the merchant's fault. A modest upward
+                       correction is applied to prevent the system from
+                       auto-rejecting merchants who simply lack a track record.
+
+      2. Risk signals — low bill payment, fraud ring membership, gate FLAGGED.
+                       These ARE evidence of risk. No correction is applied;
+                       the base score stands.
+
+    Returns a dict that maps directly onto the FairnessAudit Pydantic model.
+    """
+    months = merchant["months_active"]
+    thin_file = months < _FULL_HISTORY_MONTHS
+    very_thin_file = months < _VERY_THIN_MONTHS
+
+    stability = 1.0 - merchant["transaction_volatility"]
+    seasonal = stability < _SEASONAL_THRESHOLD
+
+    network_trust = merchant.get("network_trust_score", 0.5)
+    low_voucher = network_trust < _LOW_VOUCHER_THRESHOLD
+
+    bill_ratio = merchant["bill_payment_ratio"]
+    risky = bill_ratio < _RISKY_BILL_THRESHOLD or fraud_flagged or gate_status == "FLAGGED"
+
+    # --- Hard cases: fraud or genuine repayment risk — no correction ---
+    if fraud_flagged:
+        return {
+            "status": "watch",
+            "title": "Fairness watch: fraud risk overrides correction",
+            "before_score": base_score,
+            "adjustment": 0,
+            "after_score": base_score,
+            "policy": "Fraud patterns detected — fairness boost withheld",
+            "summary": (
+                "TrustLayer detected irregular vouching patterns. "
+                "Fairness correction is withheld when fraud signals are present."
+            ),
+            "reasons": [
+                "Circular vouching pattern detected in community network.",
+                "Fairness boost does not apply when fraud gate is active.",
+            ],
+        }
+
+    if bill_ratio < _RISKY_BILL_THRESHOLD:
+        return {
+            "status": "watch",
+            "title": "Fairness watch: repayment risk remains",
+            "before_score": base_score,
+            "adjustment": 0,
+            "after_score": base_score,
+            "policy": "Repayment risk present — no correction applied",
+            "summary": (
+                "Missing data and repayment risk are treated separately. "
+                "This merchant shows both thin history and repayment concerns."
+            ),
+            "reasons": [
+                "Bill repayment below 60% threshold.",
+                "Fairness correction applies to missing data, not repayment risk.",
+            ],
+        }
+
+    # --- Data-gap correction path ---
+    adjustment = 0
+    reasons: list[str] = []
+
+    if very_thin_file:
+        adjustment += _VERY_THIN_BOOST
+        reasons.append(
+            f"{months} months of records: very limited history lowers confidence, "
+            "not automatic eligibility."
+        )
+    elif thin_file:
+        adjustment += _THIN_BOOST
+        reasons.append(
+            f"{months} months of records: limited history lowers confidence, "
+            "not eligibility."
+        )
+
+    if low_voucher:
+        adjustment += _LOW_VOUCHER_BOOST
+        reasons.append(
+            "Low community trust score: network connections help but loan ceiling "
+            "stays cautious."
+        )
+
+    if seasonal:
+        adjustment += _SEASONAL_BOOST
+        reasons.append(
+            "Seasonal cashflow pattern detected: income variability is acknowledged, "
+            "not penalized."
+        )
+
+    adjustment = min(adjustment, _MAX_ADJUSTMENT)
+    after_score = min(base_score + adjustment, 1000)
+
+    if adjustment > 0:
+        # Determine the most descriptive title based on primary driver.
+        if very_thin_file:
+            title = "Thin-file fairness correction applied"
+            policy = "Correct missing-data bias"
+        elif seasonal:
+            title = "Seasonal cashflow adjustment applied"
+            policy = "Acknowledge income seasonality"
+        else:
+            title = "Fairness correction applied"
+            policy = "Correct missing-data bias"
+
+        # Append the invariant closing reason last.
+        reasons.append(
+            "Missing data is separated from risky behaviour — late bills, fraud rings, "
+            "and anomalous loan requests are still penalized."
+        )
+
+        return {
+            "status": "corrected",
+            "title": title,
+            "before_score": base_score,
+            "adjustment": adjustment,
+            "after_score": after_score,
+            "policy": policy,
+            "summary": (
+                "TrustLayer does not treat limited records as bad behaviour. "
+                "The merchant stays eligible, but confidence and loan ceiling "
+                "remain cautious."
+            ),
+            "reasons": reasons,
+        }
+
+    # --- No correction needed ---
+    return {
+        "status": "passed",
+        "title": "Fairness audit passed",
+        "before_score": base_score,
+        "adjustment": 0,
+        "after_score": base_score,
+        "policy": "No correction needed",
+        "summary": (
+            "Sufficient behavioural data available. Score reflects actual activity "
+            "without fairness adjustment."
+        ),
+        "reasons": [
+            "Adequate history and behavioural signals available.",
+            "No thin-file or seasonal penalties detected.",
+        ],
     }

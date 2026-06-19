@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.schemas import (
     ExplanationItem,
+    FairnessAudit,
     FairnessGroup,
     FairnessResponse,
     GraphEdge,
@@ -27,7 +28,7 @@ from api.schemas import (
     SHAPItem,
 )
 from config.settings import SCORE_BAND_SILVER
-from src.fairness import compute_fairness_metrics, get_thin_file_analysis
+from src.fairness import compute_fairness_metrics, compute_merchant_fairness, get_thin_file_analysis
 from src.graph import get_graph_data, get_merchant_trust
 from src.ml_model import get_shap_explanation, predict_band
 from src.scoring import (
@@ -157,12 +158,20 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         gate_status = "CLEAR"
         gate_reason = None
 
+    # --- Fairness audit and optional score correction ---
+    fairness_raw = compute_merchant_fairness(merchant, final_fused, gate_status, fraud_flagged)
+    # Use the corrected score (after_score) as the final score presented to the user.
+    final_score = fairness_raw["after_score"]
+    # Recompute band from the corrected score so band and score stay consistent.
+    band = compute_score_band(final_score)
+    fairness_audit = FairnessAudit(**fairness_raw)
+
     # --- AI narrative summary (non-blocking) ---
     ai_summary: Optional[str] = None
     try:
         ai_summary = generate_summary(
             merchant_name=merchant["name"],
-            score=final_fused,
+            score=final_score,
             band=band,
             gate_status=gate_status,
             explanation=raw_explanation,
@@ -179,7 +188,7 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         name=merchant["name"],
         occupation=merchant["occupation"],
         location=merchant["location"],
-        score=final_fused,
+        score=final_score,
         band=band,
         confidence=round(confidence, 4),
         loan_ceiling=loan_ceiling,
@@ -193,6 +202,7 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         ml_band=ml_result["ml_band"],
         ml_confidence=ml_result["ml_confidence"],
         fraud_flagged=fraud_flagged,
+        fairness_audit=fairness_audit,
     )
 
 

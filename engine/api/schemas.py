@@ -84,6 +84,9 @@ class ScoreResponse(BaseModel):
     # Fraud
     fraud_flagged: bool
 
+    # Per-request fairness audit
+    fairness_audit: FairnessAudit
+
 
 # ---------------------------------------------------------------------------
 # Graph response models
@@ -141,6 +144,28 @@ class MerchantSummary(BaseModel):
     occupation: str
     location: str
     months_active: int
+
+
+# ---------------------------------------------------------------------------
+# Per-merchant fairness audit
+# ---------------------------------------------------------------------------
+
+class FairnessAudit(BaseModel):
+    """
+    Per-request fairness audit result attached to every ScoreResponse.
+
+    Separates data-gap penalties (thin history, seasonality) from genuine
+    risk signals (fraud, missed bills). Applies a score adjustment only when
+    the merchant is penalised by missing data, never when the risk is real.
+    """
+    status: str         # "passed" | "corrected" | "watch"
+    title: str
+    before_score: int
+    adjustment: int     # points added by fairness correction (0 if none)
+    after_score: int    # final score after correction (clamped to 1000)
+    policy: str
+    summary: str
+    reasons: list[str]
 
 
 # ---------------------------------------------------------------------------
