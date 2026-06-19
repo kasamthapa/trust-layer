@@ -161,17 +161,18 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
     ai_summary: Optional[str] = None
     try:
         ai_summary = generate_summary(
-            merchant=merchant,
+            merchant_name=merchant["name"],
             score=final_fused,
             band=band,
             gate_status=gate_status,
             explanation=raw_explanation,
             confidence=confidence,
             loan_ceiling=loan_ceiling,
-            requested_loan=requested_loan,
+            fraud_flagged=fraud_flagged,
+            ml_band=ml_result["ml_band"],
         )
     except Exception as exc:
-        logger.warning("AI summary failed for %s: %s", merchant_id, exc)
+        logger.error("AI summary failed for %s: %s", merchant_id, exc, exc_info=True)
 
     return ScoreResponse(
         merchant_id=merchant_id,

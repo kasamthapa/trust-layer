@@ -60,7 +60,7 @@ def _call_ollama(prompt: str) -> str | None:
         resp = httpx.post(
             f"{OLLAMA_BASE_URL}/api/generate",
             json=payload,
-            timeout=float(OLLAMA_TIMEOUT),
+            timeout=60.0,
         )
         resp.raise_for_status()
         data = resp.json()
