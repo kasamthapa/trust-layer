@@ -9,6 +9,7 @@ import { getHealth, getMerchants, getGraph } from './api'
 import type { HealthResponse, MerchantSummary, GraphResponse } from './types'
 import BankDashboard from './pages/BankDashboard'
 import MerchantOnboarding from './pages/MerchantOnboarding'
+import TrustGraph from './pages/TrustGraph'
 
 // ── Landing page ──────────────────────────────────────────────────────────
 
@@ -158,15 +159,7 @@ function BankPage() {
 }
 
 function GraphPage() {
-  return (
-    <main className="flex-1 flex items-center justify-center p-8">
-      <div className="text-center text-[#94a3b8]">
-        <GitBranch size={32} className="mx-auto mb-3 text-[#6366f1]" />
-        <h2 className="text-2xl font-semibold text-[#f1f5f9] mb-2">Trust Graph</h2>
-        <p>Vouch network visualisation — coming next.</p>
-      </div>
-    </main>
-  )
+  return <TrustGraph />
 }
 
 // ── Header ────────────────────────────────────────────────────────────────
