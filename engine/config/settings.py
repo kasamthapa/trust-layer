@@ -24,5 +24,11 @@ SCORE_BAND_SILVER: int = int(os.getenv("SCORE_BAND_SILVER", "350"))
 
 APP_VERSION: str = os.getenv("APP_VERSION", "1.0.0")
 
+# Vouch limits and default consequences
+MAX_VOUCHES_GIVEN: int = int(os.getenv("MAX_VOUCHES_GIVEN", "5"))
+MAX_VOUCHES_RECEIVED: int = int(os.getenv("MAX_VOUCHES_RECEIVED", "10"))
+VOUCH_DEFAULT_IMPACT: float = float(os.getenv("VOUCH_DEFAULT_IMPACT", "0.3"))
+FRAUD_ASSOCIATION_THRESHOLD: int = int(os.getenv("FRAUD_ASSOCIATION_THRESHOLD", "1"))
+
 # NeonDB / PostgreSQL connection string
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")

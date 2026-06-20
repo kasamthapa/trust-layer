@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import {
-  Shield, Activity, Users, Building2, GitBranch,
+  Shield, Activity, Users,
   ChevronRight, Database, Network, AlertTriangle,
-  CheckCircle2, User,
+  CheckCircle2,
 } from 'lucide-react'
 import { getHealth, getMerchants, getGraph } from './api'
 import type { HealthResponse, MerchantSummary, GraphResponse } from './types'
 import BankDashboard from './pages/BankDashboard'
 import MerchantOnboarding from './pages/MerchantOnboarding'
 import TrustGraph from './pages/TrustGraph'
+import VouchReview from './pages/VouchReview'
 
 // ── Landing page ──────────────────────────────────────────────────────────
 
@@ -252,6 +253,7 @@ function AppShell() {
         <Route path="/onboard" element={<OnboardPage />} />
         <Route path="/bank"    element={<BankPage />} />
         <Route path="/graph"   element={<GraphPage />} />
+        <Route path="/vouch"   element={<VouchReview />} />
       </Routes>
     </div>
   )

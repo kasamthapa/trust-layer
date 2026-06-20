@@ -22,14 +22,27 @@ from api.schemas import (
     GraphNode,
     GraphResponse,
     LayerBreakdown,
+    MerchantCreateRequest,
+    MerchantCreateResponse,
     MerchantSummary,
     ScoreRequest,
     ScoreResponse,
     SHAPItem,
+    VouchLimit,
+    VouchLookupMerchant,
+    VouchLookupResponse,
+    VouchRequest,
+    VouchRespondRequest,
+    VouchStats,
 )
-from config.settings import SCORE_BAND_SILVER
+from config.settings import (
+    SCORE_BAND_SILVER,
+    MAX_VOUCHES_GIVEN,
+    MAX_VOUCHES_RECEIVED,
+    VOUCH_DEFAULT_IMPACT,
+)
 from src.fairness import compute_fairness_metrics, compute_merchant_fairness, get_thin_file_analysis
-from src.graph import get_graph_data, get_merchant_trust
+from src.graph import build_graph, compute_vouch_stats, get_graph_data, get_merchant_trust
 from src.ml_model import get_shap_explanation, predict_band
 from src.scoring import (
     build_explanation,
@@ -52,6 +65,37 @@ router = APIRouter(prefix="/api/v1", tags=["trustlayer"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+
+def _normalise_identifier(value: str) -> str:
+    return value.strip().lower()
+
+
+def _find_merchant_by_identifier(identifier: str) -> Optional[dict]:
+    """Find a merchant by merchant ID, business PAN, or phone number."""
+    needle = _normalise_identifier(identifier)
+    if not needle:
+        return None
+    for m in load_merchants_from_db():
+        candidates = [
+            m.get("id"),
+            m.get("business_pan"),
+            m.get("phone"),
+        ]
+        if any(_normalise_identifier(str(c)) == needle for c in candidates if c):
+            return m
+    return None
+
+
+def _empty_vouch_stats() -> VouchStats:
+    return VouchStats(
+        vouches_given=0,
+        vouches_received=0,
+        vouches_given_remaining=MAX_VOUCHES_GIVEN,
+        vouches_received_remaining=MAX_VOUCHES_RECEIVED,
+        fraud_association=False,
+    )
 
 def _get_merchant_or_404(merchant_id: str) -> dict:
     """Load a merchant by ID from DB (with JSON fallback), raise 404 if missing."""
@@ -164,6 +208,36 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         gate_status = "CLEAR"
         gate_reason = None
 
+    # --- Vouch stats ---
+    try:
+        G = build_graph()
+        all_vouch_stats = compute_vouch_stats(G)
+        vs_raw = all_vouch_stats.get(merchant_id, {
+            "vouches_given": 0,
+            "vouches_received": 0,
+            "vouches_given_remaining": MAX_VOUCHES_GIVEN,
+            "vouches_received_remaining": MAX_VOUCHES_RECEIVED,
+            "fraud_association": False,
+        })
+        vouch_stats = VouchStats(**vs_raw)
+    except Exception as exc:
+        logger.warning("Vouch stats failed for %s: %s", merchant_id, exc)
+        vouch_stats = VouchStats(
+            vouches_given=0,
+            vouches_received=0,
+            vouches_given_remaining=MAX_VOUCHES_GIVEN,
+            vouches_received_remaining=MAX_VOUCHES_RECEIVED,
+            fraud_association=False,
+        )
+
+    # If this merchant has vouched for a fraud-ring member, add a warning factor
+    if vouch_stats.fraud_association:
+        explanation.append(ExplanationItem(
+            factor="Fraud Association",
+            direction="-",
+            detail="This merchant has vouched for at least one member of a detected fraud ring. Association review triggered.",
+        ))
+
     # --- Fairness audit and optional score correction ---
     fairness_raw = compute_merchant_fairness(merchant, final_fused, gate_status, fraud_flagged)
     # Use the corrected score (after_score) as the final score presented to the user.
@@ -185,6 +259,7 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
             loan_ceiling=loan_ceiling,
             fraud_flagged=fraud_flagged,
             ml_band=ml_result["ml_band"],
+            fraud_association=vouch_stats.fraud_association,
         )
     except Exception as exc:
         logger.error("AI summary failed for %s: %s", merchant_id, exc, exc_info=True)
@@ -192,7 +267,7 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
     return ScoreResponse(
         merchant_id=merchant_id,
         name=merchant["name"],
-        occupation=merchant["occupation"],
+        business_type=merchant["business_type"],
         location=merchant["location"],
         score=final_score,
         band=band,
@@ -209,12 +284,96 @@ def _build_score_response(merchant: dict, requested_loan_override: Optional[floa
         ml_confidence=ml_result["ml_confidence"],
         fraud_flagged=fraud_flagged,
         fairness_audit=fairness_audit,
+        vouch_stats=vouch_stats,
     )
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.post("/merchants", response_model=MerchantCreateResponse)
+def create_merchant(req: MerchantCreateRequest) -> MerchantCreateResponse:
+    """
+    Onboard a new merchant submitted via the merchant flow UI.
+
+    Inserts into PostgreSQL, clears caches so the new merchant is immediately
+    visible in subsequent list/score/graph calls, then returns the assigned ID.
+    Falls back to a deterministic generated ID if the database is unavailable
+    (demo-safe: does not raise a 500 in the hackathon sandbox).
+    """
+    from src.database import get_connection
+    from src.graph import get_graph_data
+
+    try:
+        conn = get_connection()
+        if conn is None:
+            raise RuntimeError("Database unavailable")
+
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM merchants;")
+                count = cur.fetchone()[0]
+                new_id = f"M{count + 1:03d}"
+
+                cur.execute(
+                    """
+                    INSERT INTO merchants (
+                        id, name, phone, citizenship_no, business_name, business_pan,
+                        location, business_type, group_label,
+                        months_active, bill_payment_ratio, qr_transaction_consistency,
+                        airtime_topup_frequency, psychometric_score, network_trust_score,
+                        transaction_volatility, days_since_last_transaction,
+                        community_fraud_flag, cashflow_monthly_npr, requested_loan_npr,
+                        loan_purpose, connected_sources
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s
+                    )
+                    """,
+                    (
+                        new_id, req.name, req.phone, req.citizenship_no,
+                        req.business_name, req.business_pan, req.location, req.business_type,
+                        "urban_emerging",
+                        req.months_active, req.bill_payment_ratio,
+                        req.qr_transaction_consistency, req.airtime_topup_frequency,
+                        req.psychometric_score, 0.5,
+                        req.transaction_volatility, req.days_since_last_transaction,
+                        0, req.cashflow_monthly_npr, req.requested_loan_npr,
+                        req.loan_purpose, ",".join(req.connected_sources),
+                    ),
+                )
+        # Create pending vouch requests for each voucher PAN provided
+        if req.voucher_pans:
+            with conn:
+                with conn.cursor() as cur:
+                    for pan in req.voucher_pans:
+                        pan = pan.strip()
+                        if pan:
+                            cur.execute(
+                                "INSERT INTO vouch_requests (requester_id, voucher_pan, status) VALUES (%s, %s, 'pending')",
+                                (new_id, pan),
+                            )
+        conn.close()
+
+        # Clear graph cache so the new merchant is included in subsequent graph calls.
+        get_graph_data.cache_clear()
+
+        logger.info("New merchant created: %s (%s)", new_id, req.name)
+        return MerchantCreateResponse(
+            merchant_id=new_id,
+            message=f"Merchant {req.name} successfully onboarded to TrustLayer. Reference ID: {new_id}",
+        )
+
+    except Exception as exc:
+        logger.error("create_merchant failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Merchant creation failed: {exc}")
+
 
 @router.get("/merchants", response_model=list[MerchantSummary])
 def list_merchants() -> list[MerchantSummary]:
@@ -229,7 +388,7 @@ def list_merchants() -> list[MerchantSummary]:
             MerchantSummary(
                 id=m["id"],
                 name=m["name"],
-                occupation=m["occupation"],
+                business_type=m["business_type"],
                 location=m["location"],
                 months_active=m["months_active"],
             )
@@ -341,6 +500,176 @@ def get_fairness() -> FairnessResponse:
     except Exception as exc:
         logger.error("get_fairness failed: %s", exc)
         raise HTTPException(status_code=500, detail="Fairness engine error.")
+
+
+@router.get("/vouch-policy", response_model=VouchLimit)
+def get_vouch_policy() -> VouchLimit:
+    """
+    Return the system-wide vouch policy constants.
+
+    Used by the merchant onboarding UI to show limits and consequences
+    before the merchant submits their application.
+    """
+    return VouchLimit(
+        max_given=MAX_VOUCHES_GIVEN,
+        max_received=MAX_VOUCHES_RECEIVED,
+        default_impact_rate=VOUCH_DEFAULT_IMPACT,
+        policy=(
+            f"Each merchant may vouch for up to {MAX_VOUCHES_GIVEN} others. "
+            f"Others may vouch for you up to {MAX_VOUCHES_RECEIVED} times. "
+            f"Vouching for a merchant who defaults on their loan reduces your trust score "
+            f"by {int(VOUCH_DEFAULT_IMPACT * 100)}% of the vouch weight. "
+            "Vouching for a fraud ring member triggers an association review of your profile."
+        ),
+    )
+
+
+def _fetch_pending_vouch_requests(identifier: str) -> list[VouchRequest]:
+    """Return pending requests for a voucher identifier (PAN, merchant ID, or phone)."""
+    from src.database import get_connection
+    conn = get_connection()
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    merchant = _find_merchant_by_identifier(identifier)
+    identifiers = {identifier.strip()}
+    if merchant:
+        for key in ("business_pan", "id", "phone"):
+            value = merchant.get(key)
+            if value:
+                identifiers.add(str(value))
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT vr.id, vr.requester_id, vr.status,
+                       to_char(vr.created_at, 'YYYY-MM-DD HH24:MI:SS'),
+                       m.name, m.business_type, m.location,
+                       m.months_active, m.cashflow_monthly_npr, m.requested_loan_npr,
+                       m.loan_purpose
+                FROM vouch_requests vr
+                JOIN merchants m ON m.id = vr.requester_id
+                WHERE vr.voucher_pan = ANY(%s) AND vr.status = 'pending'
+                ORDER BY vr.created_at DESC
+                """,
+                (list(identifiers),),
+            )
+            rows = cur.fetchall()
+        return [
+            VouchRequest(
+                id=r[0],
+                requester_id=r[1],
+                status=r[2],
+                created_at=r[3],
+                requester_name=r[4],
+                business_type=r[5],
+                location=r[6],
+                months_active=r[7],
+                cashflow_monthly_npr=r[8],
+                requested_loan_npr=r[9],
+                loan_purpose=r[10],
+            )
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.error("_fetch_pending_vouch_requests failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        conn.close()
+
+
+@router.get("/vouch-requests", response_model=list[VouchRequest])
+def get_vouch_requests(pan: str) -> list[VouchRequest]:
+    """Return pending vouch requests for a voucher PAN, merchant ID, or phone."""
+    return _fetch_pending_vouch_requests(pan)
+
+
+@router.get("/vouch-lookup", response_model=VouchLookupResponse)
+def get_vouch_lookup(query: str) -> VouchLookupResponse:
+    """Lookup voucher requests and received-vouch quota by merchant ID or PAN."""
+    clean = query.strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    merchant = _find_merchant_by_identifier(clean)
+    try:
+        G = build_graph()
+        stats_map = compute_vouch_stats(G)
+        stats = VouchStats(**stats_map.get(merchant["id"], _empty_vouch_stats().model_dump())) if merchant else _empty_vouch_stats()
+    except Exception as exc:
+        logger.warning("vouch lookup stats failed for %s: %s", clean, exc)
+        stats = _empty_vouch_stats()
+
+    requests = _fetch_pending_vouch_requests(clean)
+    return VouchLookupResponse(
+        merchant=VouchLookupMerchant(
+            id=merchant["id"],
+            name=merchant["name"],
+            business_type=merchant.get("business_type", ""),
+            location=merchant.get("location", ""),
+            business_pan=merchant.get("business_pan"),
+            phone=merchant.get("phone"),
+        ) if merchant else None,
+        vouch_stats=stats,
+        max_received=MAX_VOUCHES_RECEIVED,
+        requests_remaining=max(0, MAX_VOUCHES_RECEIVED - stats.vouches_received),
+        requests=requests,
+    )
+
+
+@router.post("/vouch-requests/{request_id}/respond")
+def respond_vouch_request(request_id: int, body: VouchRespondRequest):
+    """Accept or decline a vouch request. Accepting creates a vouch record."""
+    from src.database import get_connection
+    if body.action not in ("accept", "decline"):
+        raise HTTPException(status_code=400, detail="action must be 'accept' or 'decline'")
+    conn = get_connection()
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT requester_id, status FROM vouch_requests WHERE id = %s",
+                    (request_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Vouch request not found")
+                requester_id, status = row
+                if status != "pending":
+                    raise HTTPException(status_code=409, detail=f"Request already {status}")
+
+                # Look up the voucher's merchant id by PAN
+                cur.execute(
+                    "SELECT id FROM merchants WHERE phone = %s OR id = %s OR business_pan = %s LIMIT 1",
+                    (body.voucher_pan, body.voucher_pan, body.voucher_pan),
+                )
+                voucher_row = cur.fetchone()
+
+                cur.execute(
+                    "UPDATE vouch_requests SET status = %s WHERE id = %s",
+                    (body.action + "d", request_id),
+                )
+                if body.action == "accept" and voucher_row:
+                    cur.execute("SELECT COUNT(*) FROM vouches WHERE to_id = %s", (requester_id,))
+                    received_count = cur.fetchone()[0]
+                    if received_count >= MAX_VOUCHES_RECEIVED:
+                        raise HTTPException(status_code=409, detail="Requester has reached the maximum received voucher limit")
+                    voucher_id = voucher_row[0]
+                    cur.execute(
+                        "INSERT INTO vouches (from_id, to_id, weight, note) VALUES (%s, %s, %s, %s)",
+                        (voucher_id, requester_id, 1.0, "Peer vouch via TrustLayer"),
+                    )
+
+        conn.close()
+        from src.graph import get_graph_data
+        get_graph_data.cache_clear()
+        return {"status": "ok", "action": body.action}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("respond_vouch_request failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/merchant/{merchant_id}/score", response_model=ScoreResponse)

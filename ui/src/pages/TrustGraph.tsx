@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, ZoomIn, ZoomOut, AlertTriangle,
 } from 'lucide-react'
-import { getGraph } from '../api'
-import type { GraphNode, GraphResponse } from '../types'
+import { getGraph, getMerchantScore } from '../api'
+import type { GraphNode, GraphResponse, VouchStats } from '../types'
+import { useAppState } from '../store'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -68,28 +69,42 @@ function BandBadge({ score }: { score: number }) {
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function TrustGraph() {
-  const [graphData, setGraphData] = useState<GraphResponse | null>(null)
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState<string | null>(null)
-  const [selected, setSelected]   = useState<SimNode | null>(null)
-  const [howOpen, setHowOpen]     = useState(false)
+  const { dataVersion }               = useAppState()
+  const [graphData, setGraphData]     = useState<GraphResponse | null>(null)
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState<string | null>(null)
+  const [selected, setSelected]       = useState<SimNode | null>(null)
+  const [selectedVouch, setSelectedVouch] = useState<VouchStats | null>(null)
+  const [howOpen, setHowOpen]         = useState(false)
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const svgRef       = useRef<SVGSVGElement>(null)
+  const containerRef      = useRef<HTMLDivElement>(null)
+  const svgRef            = useRef<SVGSVGElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const zoomRef      = useRef<any>(null)
-  // Store D3 node selection so selected-highlight effect can update strokes
+  const zoomRef           = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const nodeSelRef   = useRef<any>(null)
-  const navigate     = useNavigate()
+  const nodeSelRef        = useRef<any>(null)
+  // True once the user has clicked a node — prevents simulation.on('end') from overriding their selection
+  const userHasSelected   = useRef(false)
+  const navigate    = useNavigate()
 
-  // ── Fetch graph data ──────────────────────────────────────────────────
+  // ── Fetch graph data — refetch when dataVersion bumps ────────────────
 
   useEffect(() => {
+    setLoading(true)
+    userHasSelected.current = false   // reset so auto-select runs on fresh graph load
     getGraph()
       .then(data => { setGraphData(data); setLoading(false) })
       .catch(() => { setError('Failed to load graph data. Is the engine running?'); setLoading(false) })
-  }, [])
+  }, [dataVersion])
+
+  // ── Fetch vouch stats when a node is selected ────────────────────────
+
+  useEffect(() => {
+    if (!selected) { setSelectedVouch(null); return }
+    getMerchantScore(selected.id)
+      .then(s => setSelectedVouch(s.vouch_stats))
+      .catch(() => setSelectedVouch(null))
+  }, [selected?.id])
 
   // ── Build D3 simulation ───────────────────────────────────────────────
 
@@ -126,7 +141,7 @@ export default function TrustGraph() {
       source:  e.source,
       target:  e.target,
       weight:  e.weight,
-      isFraud: fraudSet.has(e.source) && fraudSet.has(e.target),
+      isFraud: fraudSet.has(e.source) || fraudSet.has(e.target),
     }))
 
     // Force simulation
@@ -142,8 +157,9 @@ export default function TrustGraph() {
       .selectAll<SVGLineElement, SimLink>('line')
       .data(links)
       .join('line')
-      .attr('stroke',       d => d.isFraud ? 'rgba(239,68,68,0.7)' : 'rgba(99,102,241,0.35)')
-      .attr('stroke-width', d => d.isFraud ? 2 : 1)
+      .attr('stroke',       d => d.isFraud ? 'rgba(239,68,68,0.75)' : 'rgba(99,102,241,0.35)')
+      .attr('stroke-width', d => d.isFraud ? 2.5 : 1)
+      .attr('stroke-dasharray', d => d.isFraud ? '5 4' : null)
 
     // ── Fraud glow halos ────────────────────────────────────────────────
 
@@ -172,7 +188,10 @@ export default function TrustGraph() {
       .attr('stroke',       'rgba(255,255,255,0.2)')
       .attr('stroke-width', 1)
       .style('cursor', 'pointer')
-      .on('click', (_event, d) => { setSelected(d) })
+      .on('click', (_event, d) => {
+        userHasSelected.current = true
+        setSelected(d)
+      })
       .call(
         d3.drag<SVGCircleElement, SimNode>()
           .on('start', (event, d) => {
@@ -195,7 +214,7 @@ export default function TrustGraph() {
       .selectAll<SVGTextElement, SimNode>('text')
       .data(nodes)
       .join('text')
-      .text(d => d.name.split(' ')[0])
+      .text(d => d.id)
       .attr('font-size',   '11px')
       .attr('font-family', 'Inter, system-ui, sans-serif')
       .attr('fill',        'rgba(255,255,255,0.85)')
@@ -226,10 +245,13 @@ export default function TrustGraph() {
         .attr('y', d => d.y ?? 0)
     })
 
-    // Auto-select M001 when simulation settles
+    // Auto-select M001 only if the user hasn't clicked anything yet.
+    // Once userHasSelected is true, the simulation can never override their choice.
     simulation.on('end', () => {
-      const m001 = nodes.find(n => n.id === 'M001')
-      if (m001) setSelected(m001)
+      if (!userHasSelected.current) {
+        const m001 = nodes.find(n => n.id === 'M001')
+        if (m001) setSelected(m001)
+      }
     })
 
     return () => { simulation.stop() }
@@ -371,7 +393,7 @@ export default function TrustGraph() {
                 {fraudNodes.length} merchants flagged in isolated vouching cluster
               </p>
               <p className="text-[11px] text-[#6b7280] leading-relaxed">
-                These merchants only vouch for each other with zero external connections.
+                These merchants form a dense suspicious vouching cluster. A small bridge to a normal merchant does not clear the fraud flag.
               </p>
               <p className="text-[11px] text-[#6b7280] leading-relaxed">
                 Loan applications from these merchants are automatically blocked.
@@ -397,7 +419,7 @@ export default function TrustGraph() {
               <div className="bg-[#111827] border border-[#1f2937] rounded-lg p-4 space-y-3">
                 <div>
                   <p className="text-sm font-semibold text-white">{selected.name}</p>
-                  <p className="text-[11px] text-[#6b7280] mt-0.5">{selected.occupation}</p>
+                  <p className="text-[11px] text-[#6b7280] mt-0.5">{selected.business_type}</p>
                   <p className="text-[11px] text-[#4b5563]">{selected.location}</p>
                 </div>
 
@@ -433,6 +455,35 @@ export default function TrustGraph() {
                     </div>
                     <BandBadge score={selected.score} />
                   </div>
+                )}
+
+                {/* Vouch stats */}
+                {selectedVouch && (
+                  <>
+                    <div className="h-px bg-[#1f2937]" />
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-[#6b7280]">Vouches Given</span>
+                        <span className="font-mono text-[#9ca3af]">
+                          {selectedVouch.vouches_given}
+                          <span className="text-[#374151]"> / 5</span>
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-[#6b7280]">Vouches Received</span>
+                        <span className="font-mono text-[#9ca3af]">
+                          {selectedVouch.vouches_received}
+                          <span className="text-[#374151]"> / 5</span>
+                        </span>
+                      </div>
+                      {selectedVouch.fraud_association && (
+                        <div className="flex items-center gap-1.5 rounded bg-[#78350f]/10 border border-[#78350f]/30 px-2 py-1.5">
+                          <span className="text-[#f59e0b] text-[10px]">⚠</span>
+                          <span className="text-[10px] text-[#f59e0b]">Fraud association</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
 
                 {/* Fraud status */}

@@ -21,6 +21,76 @@ export interface LayerBreakdown {
   ml_note: string
 }
 
+export interface VouchStats {
+  vouches_given: number
+  vouches_received: number
+  vouches_given_remaining: number
+  vouches_received_remaining: number
+  fraud_association: boolean
+}
+
+export interface VouchRequest {
+  id: number
+  requester_id: string
+  requester_name: string
+  business_type: string
+  location: string
+  months_active: number
+  cashflow_monthly_npr: number | null
+  requested_loan_npr: number | null
+  loan_purpose: string | null
+  status: string
+  created_at: string
+}
+
+export interface VouchLimit {
+  max_given: number
+  max_received: number
+  default_impact_rate: number
+  policy: string
+}
+
+export interface VouchLookupMerchant {
+  id: string
+  name: string
+  business_type: string
+  location: string
+  business_pan: string | null
+  phone: string | null
+}
+
+export interface VouchLookupResponse {
+  merchant: VouchLookupMerchant | null
+  vouch_stats: VouchStats
+  max_received: number
+  requests_remaining: number
+  requests: VouchRequest[]
+}
+
+export interface MerchantProfile {
+  id: string
+  name: string
+  phone?: string | null
+  citizenship_no?: string | null
+  business_name?: string | null
+  business_pan?: string | null
+  business_type: string
+  location: string
+  months_active: number
+  bill_payment_ratio?: number | null
+  qr_transaction_consistency?: number | null
+  airtime_topup_frequency?: number | null
+  psychometric_score?: number | null
+  network_trust_score?: number | null
+  transaction_volatility?: number | null
+  days_since_last_transaction?: number | null
+  cashflow_monthly_npr?: number | null
+  requested_loan_npr?: number | null
+  loan_purpose?: string | null
+  connected_sources?: string | null
+  group?: string | null
+}
+
 export interface FairnessAudit {
   status: 'passed' | 'corrected' | 'watch'
   title: string
@@ -35,7 +105,7 @@ export interface FairnessAudit {
 export interface ScoreResponse {
   merchant_id: string
   name: string
-  occupation: string
+  business_type: string
   location: string
   score: number
   band: 'Platinum' | 'Gold' | 'Silver' | 'Refused'
@@ -52,12 +122,13 @@ export interface ScoreResponse {
   ml_confidence: number
   fraud_flagged: boolean
   fairness_audit: FairnessAudit
+  vouch_stats: VouchStats
 }
 
 export interface GraphNode {
   id: string
   name: string
-  occupation: string
+  business_type: string
   location: string
   trust: number
   fraud: boolean
@@ -102,7 +173,7 @@ export interface FairnessResponse {
 export interface MerchantSummary {
   id: string
   name: string
-  occupation: string
+  business_type: string
   location: string
   months_active: number
 }
@@ -127,7 +198,7 @@ export interface OnboardingData {
   // Business
   business_name: string
   business_pan: string
-  occupation: string
+  business_type: string
   location: string
 
   // Behavioural signals

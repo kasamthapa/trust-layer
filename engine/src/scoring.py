@@ -93,11 +93,13 @@ def get_all_merchants_db() -> list[dict]:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, name, phone, location, occupation, group_label, "
+                    "SELECT id, name, phone, citizenship_no, business_name, business_pan, "
+                    "location, business_type, group_label, "
                     "months_active, bill_payment_ratio, qr_transaction_consistency, "
                     "airtime_topup_frequency, psychometric_score, network_trust_score, "
                     "transaction_volatility, days_since_last_transaction, "
-                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr "
+                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr, "
+                    "loan_purpose, connected_sources "
                     "FROM merchants ORDER BY id"
                 )
                 columns = [desc[0] for desc in cur.description]
@@ -121,11 +123,13 @@ def get_merchant_db(merchant_id: str) -> Optional[dict]:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, name, phone, location, occupation, group_label, "
+                    "SELECT id, name, phone, citizenship_no, business_name, business_pan, "
+                    "location, business_type, group_label, "
                     "months_active, bill_payment_ratio, qr_transaction_consistency, "
                     "airtime_topup_frequency, psychometric_score, network_trust_score, "
                     "transaction_volatility, days_since_last_transaction, "
-                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr "
+                    "community_fraud_flag, cashflow_monthly_npr, requested_loan_npr, "
+                    "loan_purpose, connected_sources "
                     "FROM merchants WHERE id = %s",
                     (merchant_id,),
                 )

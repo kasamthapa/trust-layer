@@ -222,17 +222,40 @@ def get_shap_explanation(merchant: dict, network_trust_score: float) -> list[dic
 
         explainer = shap.TreeExplainer(model)
 
-        # shap_values shape: (n_classes, n_samples, n_features) for multi-class XGBoost.
+        # shap_values shape varies by shap version and XGBoost config:
+        #   - Older shap: list of (n_samples, n_features) arrays, one per class
+        #   - Newer shap: single (n_samples, n_features) array (already class-resolved)
+        #   - 3-D numpy: (n_classes, n_samples, n_features)
         shap_values = explainer.shap_values(X)
 
-        # Use the SHAP values for the predicted class so the explanation is
-        # aligned with the actual decision rather than a background class.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             predicted_class = int(model.predict(X)[0])
 
-        # shap_values is a list indexed by class; each element is (n_samples, n_features).
-        class_shap = shap_values[predicted_class][0]  # shape: (n_features,)
+        # Normalise to a single (n_features,) vector regardless of shap version.
+        # Observed shapes from different shap/XGBoost version combinations:
+        #   list of per-class 2-D arrays : shap_values[class][sample]
+        #   ndarray (n_classes, n_samples, n_features)
+        #   ndarray (n_samples, n_features, n_classes)  ← this model
+        #   ndarray (n_samples, n_features)             ← binary / single output
+        sv = np.array(shap_values)
+        if isinstance(shap_values, list):
+            idx = min(predicted_class, len(shap_values) - 1)
+            class_shap = np.array(shap_values[idx])[0]
+        elif sv.ndim == 3:
+            if sv.shape[0] == len(FEATURE_NAMES) or sv.shape[1] == len(FEATURE_NAMES):
+                # (n_samples, n_features, n_classes)
+                n_classes = sv.shape[2]
+                idx = min(predicted_class, n_classes - 1)
+                class_shap = sv[0, :, idx]
+            else:
+                # (n_classes, n_samples, n_features)
+                n_classes = sv.shape[0]
+                idx = min(predicted_class, n_classes - 1)
+                class_shap = sv[idx, 0, :]
+        else:
+            # (n_samples, n_features) — already resolved
+            class_shap = sv[0]
 
         items = [
             {

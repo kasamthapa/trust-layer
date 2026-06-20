@@ -50,11 +50,28 @@ class LayerBreakdown(BaseModel):
 # Main score response
 # ---------------------------------------------------------------------------
 
+class VouchStats(BaseModel):
+    """Per-merchant vouch usage and fraud association status."""
+    vouches_given: int
+    vouches_received: int
+    vouches_given_remaining: int
+    vouches_received_remaining: int
+    fraud_association: bool          # True if any vouched merchant is in a fraud ring
+
+
+class VouchLimit(BaseModel):
+    """System-wide vouch policy constants returned by GET /vouch-policy."""
+    max_given: int
+    max_received: int
+    default_impact_rate: float
+    policy: str
+
+
 class ScoreResponse(BaseModel):
     # Identity
     merchant_id: str
     name: str
-    occupation: str
+    business_type: str
     location: str
 
     # Score
@@ -88,6 +105,9 @@ class ScoreResponse(BaseModel):
     # Per-request fairness audit
     fairness_audit: FairnessAudit
 
+    # Vouch analysis
+    vouch_stats: VouchStats
+
 
 # ---------------------------------------------------------------------------
 # Graph response models
@@ -96,7 +116,7 @@ class ScoreResponse(BaseModel):
 class GraphNode(BaseModel):
     id: str
     name: str
-    occupation: str
+    business_type: str
     location: str
     trust: float    # normalised PageRank score 0.0–1.0
     fraud: bool     # True if flagged by ring detection
@@ -139,10 +159,74 @@ class FairnessResponse(BaseModel):
 # Merchant list model
 # ---------------------------------------------------------------------------
 
+class MerchantCreateRequest(BaseModel):
+    name: str
+    phone: str
+    citizenship_no: str
+    business_name: str
+    business_pan: str
+    business_type: str
+    location: str
+    months_active: int
+    cashflow_monthly_npr: int
+    bill_payment_ratio: float
+    qr_transaction_consistency: float
+    airtime_topup_frequency: float
+    transaction_volatility: float
+    days_since_last_transaction: int
+    psychometric_score: Optional[float] = None
+    requested_loan_npr: int
+    loan_purpose: str
+    voucher_pans: list[str] = []
+    connected_sources: list[str] = []
+
+
+class MerchantCreateResponse(BaseModel):
+    merchant_id: str
+    message: str
+    score_preview: Optional[int] = None
+
+
+class VouchRequest(BaseModel):
+    id: int
+    requester_id: str
+    requester_name: str
+    business_type: str
+    location: str
+    months_active: int
+    cashflow_monthly_npr: Optional[int] = None
+    requested_loan_npr: Optional[int] = None
+    loan_purpose: Optional[str] = None
+    status: str
+    created_at: str
+
+
+class VouchRespondRequest(BaseModel):
+    action: str   # "accept" or "decline"
+    voucher_pan: str
+
+
+class VouchLookupMerchant(BaseModel):
+    id: str
+    name: str
+    business_type: str
+    location: str
+    business_pan: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class VouchLookupResponse(BaseModel):
+    merchant: Optional[VouchLookupMerchant] = None
+    vouch_stats: VouchStats
+    max_received: int
+    requests_remaining: int
+    requests: list[VouchRequest]
+
+
 class MerchantSummary(BaseModel):
     id: str
     name: str
-    occupation: str
+    business_type: str
     location: str
     months_active: int
 

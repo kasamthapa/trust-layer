@@ -63,8 +63,11 @@ CREATE TABLE IF NOT EXISTS merchants (
     id                          VARCHAR(10)  PRIMARY KEY,
     name                        VARCHAR(100) NOT NULL,
     phone                       VARCHAR(20),
+    citizenship_no              VARCHAR(100),
+    business_name               VARCHAR(150),
+    business_pan                VARCHAR(100),
     location                    VARCHAR(100),
-    occupation                  VARCHAR(100),
+    business_type               VARCHAR(100),
     group_label                 VARCHAR(50),
     months_active               INTEGER,
     bill_payment_ratio          FLOAT,
@@ -77,6 +80,8 @@ CREATE TABLE IF NOT EXISTS merchants (
     community_fraud_flag        INTEGER        DEFAULT 0,
     cashflow_monthly_npr        INTEGER,
     requested_loan_npr          INTEGER,
+    loan_purpose                VARCHAR(200),
+    connected_sources           TEXT,
     created_at                  TIMESTAMP      DEFAULT NOW()
 );
 """
@@ -89,6 +94,16 @@ CREATE TABLE IF NOT EXISTS vouches (
     weight      FLOAT,
     note        VARCHAR(200),
     created_at  TIMESTAMP    DEFAULT NOW()
+);
+"""
+
+_CREATE_VOUCH_REQUESTS = """
+CREATE TABLE IF NOT EXISTS vouch_requests (
+    id              SERIAL       PRIMARY KEY,
+    requester_id    VARCHAR(10)  REFERENCES merchants(id),
+    voucher_pan     VARCHAR(100) NOT NULL,
+    status          VARCHAR(20)  DEFAULT 'pending',
+    created_at      TIMESTAMP    DEFAULT NOW()
 );
 """
 
@@ -110,6 +125,24 @@ def init_db() -> bool:
             with conn.cursor() as cur:
                 cur.execute(_CREATE_MERCHANTS)
                 cur.execute(_CREATE_VOUCHES)
+                cur.execute(_CREATE_VOUCH_REQUESTS)
+                # Migrate: rename occupation → business_type if old column still exists
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name='merchants' AND column_name='occupation'
+                        ) THEN
+                            ALTER TABLE merchants RENAME COLUMN occupation TO business_type;
+                        END IF;
+                    END $$;
+                """)
+                cur.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS citizenship_no VARCHAR(100);")
+                cur.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS business_name VARCHAR(150);")
+                cur.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS business_pan VARCHAR(100);")
+                cur.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS loan_purpose VARCHAR(200);")
+                cur.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS connected_sources TEXT;")
         logger.info("Database schema initialised (merchants + vouches tables ready).")
         return True
     except Exception as exc:
@@ -163,13 +196,13 @@ def seed_database() -> bool:
                 # --- Insert merchants ---
                 merchant_sql = """
                     INSERT INTO merchants (
-                        id, name, phone, location, occupation, group_label,
+                        id, name, phone, location, business_type, group_label,
                         months_active, bill_payment_ratio, qr_transaction_consistency,
                         airtime_topup_frequency, psychometric_score, network_trust_score,
                         transaction_volatility, days_since_last_transaction,
                         community_fraud_flag, cashflow_monthly_npr, requested_loan_npr
                     ) VALUES (
-                        %(id)s, %(name)s, %(phone)s, %(location)s, %(occupation)s,
+                        %(id)s, %(name)s, %(phone)s, %(location)s, %(business_type)s,
                         %(group)s, %(months_active)s, %(bill_payment_ratio)s,
                         %(qr_transaction_consistency)s, %(airtime_topup_frequency)s,
                         %(psychometric_score)s, %(network_trust_score)s,

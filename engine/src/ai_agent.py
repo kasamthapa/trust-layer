@@ -133,6 +133,7 @@ def generate_summary(
     explanation: list[dict],
     fraud_flagged: bool,
     ml_band: str,
+    fraud_association: bool = False,
 ) -> str:
     """
     Generate a 2–3 sentence lending decision summary for a loan officer.
@@ -152,6 +153,12 @@ def generate_summary(
         f"{e['factor']} ({e['direction']})" for e in top_factors
     ) if top_factors else "no detailed factors available"
 
+    association_note = (
+        "\nNote: This merchant has vouched for at least one fraud-flagged merchant. "
+        "Mention this association risk."
+        if fraud_association else ""
+    )
+
     prompt = (
         "You are a credit officer at a microfinance institution in Nepal. "
         "Explain this lending decision to a colleague in 2-3 sentences. "
@@ -165,6 +172,7 @@ def generate_summary(
         f"Fraud flag: {fraud_flagged}\n"
         f"ML prediction: {ml_band}\n"
         f"Key factors: {factors_text}"
+        f"{association_note}"
     )
 
     result = _call_ollama(prompt)

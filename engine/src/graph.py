@@ -18,13 +18,21 @@ surfaced in the API for the UI graph visualisation.
 """
 
 import json
+import logging
 import os
 from functools import lru_cache
 
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 import community as community_louvain  # python-louvain
 
-from config.settings import SEED_DATA_PATH
+from config.settings import (
+    SEED_DATA_PATH,
+    MAX_VOUCHES_GIVEN,
+    MAX_VOUCHES_RECEIVED,
+    VOUCH_DEFAULT_IMPACT,
+)
 from src.scoring import get_all_merchants, load_merchants_from_db
 
 # ---------------------------------------------------------------------------
@@ -37,9 +45,11 @@ from src.scoring import get_all_merchants, load_merchants_from_db
 _PAGERANK_ALPHA = 0.85
 
 # A fraud ring is characterised by: small size, dense internal edges,
-# and zero external connections. These two thresholds define "small" and "dense".
-_FRAUD_MAX_CLUSTER_SIZE = 7       # rings larger than this are too obvious / unlikely
+# and very few external connections. One bridge edge should not launder a
+# dense scam cluster into the healthy network during the demo or in practice.
+_FRAUD_MAX_CLUSTER_SIZE = 7
 _FRAUD_MIN_INTERNAL_EDGE_RATIO = 1  # internal_edges >= members (fully meshed or close)
+_FRAUD_MAX_EXTERNAL_BRIDGES = 1     # tolerate one attempted bridge without clearing fraud
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +57,30 @@ _FRAUD_MIN_INTERNAL_EDGE_RATIO = 1  # internal_edges >= members (fully meshed or
 # ---------------------------------------------------------------------------
 
 def _load_vouches() -> list[dict]:
-    """Load the vouches array from seed_data.json."""
+    """Load vouches from PostgreSQL when available, otherwise seed_data.json."""
+    try:
+        from src.database import get_connection
+        conn = get_connection()
+        if conn is not None:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT from_id, to_id, weight, note
+                        FROM vouches
+                        ORDER BY id
+                        """
+                    )
+                    rows = cur.fetchall()
+            conn.close()
+            if rows:
+                return [
+                    {"from_id": r[0], "to_id": r[1], "weight": r[2], "note": r[3] or ""}
+                    for r in rows
+                ]
+    except Exception as exc:
+        logger.warning("Could not load DB vouches; falling back to seed data: %s", exc)
+
     path = os.path.join(os.path.dirname(__file__), "..", SEED_DATA_PATH)
     with open(os.path.normpath(path), "r", encoding="utf-8") as f:
         return json.load(f)["vouches"]
@@ -75,13 +108,54 @@ def build_graph() -> nx.DiGraph:
         G.add_node(
             m["id"],
             name=m["name"],
-            occupation=m["occupation"],
+            business_type=m["business_type"],
             location=m["location"],
             community_fraud_flag=m["community_fraud_flag"],
         )
 
-    # --- Add edges with raw weights first ---
-    for vouch in _load_vouches():
+    # --- Load and enforce vouch limits before adding edges ---
+    raw_vouches = _load_vouches()
+
+    # Group by giver and by receiver to enforce per-merchant limits
+    from collections import defaultdict
+    given_by: dict[str, list[dict]] = defaultdict(list)
+    received_by: dict[str, list[dict]] = defaultdict(list)
+    for v in raw_vouches:
+        given_by[v["from_id"]].append(v)
+        received_by[v["to_id"]].append(v)
+
+    allowed_vouches: set[tuple[str, str]] = set()
+
+    for giver, vouches in given_by.items():
+        if len(vouches) > MAX_VOUCHES_GIVEN:
+            vouches = sorted(vouches, key=lambda v: v["weight"], reverse=True)[:MAX_VOUCHES_GIVEN]
+            logger.warning(
+                "Merchant %s exceeded MAX_VOUCHES_GIVEN (%d); trimmed to top %d by weight.",
+                giver, MAX_VOUCHES_GIVEN, MAX_VOUCHES_GIVEN,
+            )
+        for v in vouches:
+            allowed_vouches.add((v["from_id"], v["to_id"]))
+
+    # Build receiver-side allowed set after giver trim, then apply receiver cap
+    recv_counts: dict[str, list[tuple[str, str, float]]] = defaultdict(list)
+    for (fid, tid) in allowed_vouches:
+        weight = next(v["weight"] for v in raw_vouches if v["from_id"] == fid and v["to_id"] == tid)
+        recv_counts[tid].append((fid, tid, weight))
+
+    final_allowed: set[tuple[str, str]] = set()
+    for receiver, edges in recv_counts.items():
+        if len(edges) > MAX_VOUCHES_RECEIVED:
+            edges = sorted(edges, key=lambda e: e[2], reverse=True)[:MAX_VOUCHES_RECEIVED]
+            logger.warning(
+                "Merchant %s exceeded MAX_VOUCHES_RECEIVED (%d); trimmed to top %d by weight.",
+                receiver, MAX_VOUCHES_RECEIVED, MAX_VOUCHES_RECEIVED,
+            )
+        for (fid, tid, _) in edges:
+            final_allowed.add((fid, tid))
+
+    for vouch in raw_vouches:
+        if (vouch["from_id"], vouch["to_id"]) not in final_allowed:
+            continue
         G.add_edge(
             vouch["from_id"],
             vouch["to_id"],
@@ -140,14 +214,14 @@ def detect_fraud_rings(G: nx.DiGraph) -> set[str]:
     every node into communities that maximise modularity (dense internal
     connections, sparse external ones).
 
-    A community is flagged as a fraud ring when ALL three conditions hold:
-      1. size <= _FRAUD_MAX_CLUSTER_SIZE  — rings are small by nature
-      2. internal_edges >= members        — members vouch each other densely
-      3. external_edges == 0              — zero connections to outside world
+    A community is flagged as a fraud ring when it is small, internally dense,
+    and has at most a tiny number of bridge edges. A single bridge should be
+    treated as attempted trust laundering, not proof that the whole cluster is
+    legitimate.
 
-    Condition 3 is the decisive one: every legitimate merchant eventually
-    connects to the broader community. A ring that vouches only internally
-    is trying to manufacture trust that has no real-world grounding.
+    Merchants already marked with community_fraud_flag=1 are always included.
+    This prevents a known scam group from turning blue just because one normal
+    merchant connects to it.
 
     Returns a set of merchant IDs belonging to detected fraud rings.
     """
@@ -161,7 +235,11 @@ def detect_fraud_rings(G: nx.DiGraph) -> set[str]:
     for node, community_id in partition.items():
         communities.setdefault(community_id, []).append(node)
 
-    fraud_nodes: set[str] = set()
+    fraud_nodes: set[str] = {
+        node
+        for node, data in G.nodes(data=True)
+        if int(data.get("community_fraud_flag") or 0) == 1
+    }
 
     for community_id, members in communities.items():
         member_set = set(members)
@@ -185,10 +263,16 @@ def detect_fraud_rings(G: nx.DiGraph) -> set[str]:
             if u not in member_set or v not in member_set
         )
 
+        flagged_inside = sum(
+            1
+            for node in members
+            if int(G.nodes[node].get("community_fraud_flag") or 0) == 1
+        )
         is_dense_enough = internal_edges >= size * _FRAUD_MIN_INTERNAL_EDGE_RATIO
-        is_isolated = external_edges == 0
+        has_tiny_boundary = external_edges <= _FRAUD_MAX_EXTERNAL_BRIDGES
+        majority_known_fraud = flagged_inside >= max(2, size // 2)
 
-        if is_dense_enough and is_isolated:
+        if is_dense_enough and (has_tiny_boundary or majority_known_fraud):
             fraud_nodes.update(members)
 
     return fraud_nodes
@@ -220,7 +304,7 @@ def get_graph_data() -> dict:
         {
             "id": node,
             "name": data.get("name", ""),
-            "occupation": data.get("occupation", ""),
+            "business_type": data.get("business_type", ""),
             "location": data.get("location", ""),
             "trust": round(trust_scores.get(node, 0.5), 4),
             "fraud": node in fraud_ids,
@@ -261,6 +345,53 @@ def get_graph_data() -> dict:
 # ---------------------------------------------------------------------------
 # Single-merchant lookup
 # ---------------------------------------------------------------------------
+
+def compute_vouch_stats(G: nx.DiGraph) -> dict[str, dict]:
+    """
+    Return per-merchant vouch usage stats and fraud association flag.
+
+    For each node returns:
+      vouches_given            — number of outgoing vouch edges
+      vouches_received         — number of incoming vouch edges
+      vouches_given_remaining  — MAX_VOUCHES_GIVEN - vouches_given
+      vouches_received_remaining — MAX_VOUCHES_RECEIVED - vouches_received
+      fraud_association        — True if any merchant they vouched for is in a
+                                 detected fraud ring
+    """
+    graph_data = get_graph_data()
+    fraud_set = set(graph_data["fraud_ring_ids"])
+
+    result: dict[str, dict] = {}
+    for node in G.nodes():
+        given    = G.out_degree(node)
+        received = G.in_degree(node)
+        # Check if any merchant this node has vouched for is fraud-flagged
+        fraud_assoc = any(
+            target in fraud_set
+            for _, target in G.out_edges(node)
+        )
+        result[node] = {
+            "vouches_given":              given,
+            "vouches_received":           received,
+            "vouches_given_remaining":    max(0, MAX_VOUCHES_GIVEN - given),
+            "vouches_received_remaining": max(0, MAX_VOUCHES_RECEIVED - received),
+            "fraud_association":          fraud_assoc,
+        }
+    return result
+
+
+def compute_default_impact(merchant_id: str, defaulted_merchant_id: str, G: nx.DiGraph) -> float:
+    """
+    Calculate how much a merchant's trust score should fall if a merchant
+    they vouched for defaults on their loan.
+
+    Returns vouch_weight * VOUCH_DEFAULT_IMPACT if the edge exists, else 0.0.
+    """
+    if not G.has_edge(merchant_id, defaulted_merchant_id):
+        return 0.0
+    weight = G[merchant_id][defaulted_merchant_id].get("weight", 0.0)
+    return round(weight * VOUCH_DEFAULT_IMPACT, 4)
+
 
 def get_merchant_trust(merchant_id: str) -> float:
     """
