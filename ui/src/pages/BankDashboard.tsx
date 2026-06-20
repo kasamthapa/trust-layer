@@ -904,6 +904,9 @@ export default function BankDashboard() {
       {/* Sidebar */}
       <aside className="w-[280px] shrink-0 flex flex-col border-r border-[#1f2937] bg-[#0d1117]">
         <div className="px-3 pt-3 pb-2 border-b border-[#1f2937]">
+          <div className="mb-3 pb-2 border-b border-[#1f2937]">
+            <img src="/trustlayer-logo.png" alt="TrustLayer" style={{ height: '28px', objectFit: 'contain' }} />
+          </div>
           <div className="flex items-center gap-2 mb-2.5">
             <Building2 size={13} className="text-[#6b7280]" />
             <span className="text-xs font-semibold text-[#9ca3af]">Applications</span>

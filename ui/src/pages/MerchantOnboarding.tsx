@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { createMerchant } from "../api";
+import { createMerchant, getVouchLookup, getSentVouchRequests, getAcceptedVouchRequests, respondVouchRequest } from "../api";
+import type { VouchRequest as VouchRequestType, VouchLookupResponse } from "../types";
 import { useAppState } from "../store";
 import {
   ChevronRight,
@@ -313,7 +314,8 @@ function Step1({
     setData((d) => ({ ...d, [k]: v }));
   const businessTypeValid =
     data.business_type &&
-    (data.business_type !== "Other" || data.custom_business_type.trim().length >= 2);
+    (data.business_type !== "Other" ||
+      data.custom_business_type.trim().length >= 2);
   const valid =
     data.name &&
     data.phone &&
@@ -381,7 +383,8 @@ function Step1({
               setData((d) => ({
                 ...d,
                 business_type: value,
-                custom_business_type: value === "Other" ? d.custom_business_type : "",
+                custom_business_type:
+                  value === "Other" ? d.custom_business_type : "",
               }))
             }
             options={OCCUPATIONS}
@@ -394,7 +397,9 @@ function Step1({
                 onChange={set("custom_business_type")}
                 placeholder="e.g. Dairy supplier, farm tools shop"
               />
-              <FieldHint>Use the actual business category shown to lenders.</FieldHint>
+              <FieldHint>
+                Use the actual business category shown to lenders.
+              </FieldHint>
             </div>
           )}
         </div>
@@ -1237,7 +1242,11 @@ function Step4({
 
   function addVoucher() {
     const identifier = data.voucher_input.trim().toUpperCase();
-    if (!identifier || data.vouchers.length >= 5 || data.vouchers.includes(identifier))
+    if (
+      !identifier ||
+      data.vouchers.length >= 5 ||
+      data.vouchers.includes(identifier)
+    )
       return;
     setData((d) => ({
       ...d,
@@ -1246,7 +1255,10 @@ function Step4({
     }));
   }
   function removeVoucher(identifier: string) {
-    setData((d) => ({ ...d, vouchers: d.vouchers.filter((v) => v !== identifier) }));
+    setData((d) => ({
+      ...d,
+      vouchers: d.vouchers.filter((v) => v !== identifier),
+    }));
   }
 
   const valid = data.loan_amount && data.loan_purpose;
@@ -1287,7 +1299,8 @@ function Step4({
           <div>
             <NLabel>Community Vouch (Optional)</NLabel>
             <p className="text-xs text-gray-500 mt-0.5">
-              Add their Merchant ID, PAN, or phone so they can confirm your request.
+              Add their Merchant ID, PAN, or phone so they can confirm your
+              request.
             </p>
           </div>
           <span className="text-xs font-mono text-gray-400 shrink-0 ml-3">
@@ -1485,8 +1498,7 @@ function VouchRequestsTab() {
   ]);
   const [showConfirm, setShowConfirm] = useState([false, false]);
 
-  const vouchesGiven =
-    1 + vouchStates.filter((s) => s === "approved").length;
+  const vouchesGiven = 1 + vouchStates.filter((s) => s === "approved").length;
   const vouchesRemaining = 5 - vouchesGiven;
 
   function approve(i: number) {
@@ -1512,7 +1524,6 @@ function VouchRequestsTab() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
-
       {/* ── Counters ── */}
       <div
         className="rounded-xl px-4 py-3 flex justify-between"
@@ -1538,7 +1549,11 @@ function VouchRequestsTab() {
         {atLimit ? (
           <div
             className="rounded-xl px-3 py-3 text-xs"
-            style={{ background: "#fef9c3", border: "1px solid #fde68a", color: "#92400e" }}
+            style={{
+              background: "#fef9c3",
+              border: "1px solid #fde68a",
+              color: "#92400e",
+            }}
           >
             You have reached the maximum of {MAX_OUTGOING} vouch requests.
           </div>
@@ -1575,7 +1590,8 @@ function VouchRequestsTab() {
                 padding: "10px 18px",
                 fontWeight: 700,
                 fontSize: 12,
-                cursor: sending || !sendInput.trim() ? "not-allowed" : "pointer",
+                cursor:
+                  sending || !sendInput.trim() ? "not-allowed" : "pointer",
                 opacity: sending || !sendInput.trim() ? 0.6 : 1,
                 whiteSpace: "nowrap",
               }}
@@ -1591,11 +1607,18 @@ function VouchRequestsTab() {
               <div
                 key={idx}
                 className="rounded-xl px-3 py-2.5 text-xs"
-                style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" }}
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  color: "#166534",
+                }}
               >
-                <p className="font-semibold">✓ Vouch request sent to {target}</p>
+                <p className="font-semibold">
+                  ✓ Vouch request sent to {target}
+                </p>
                 <p className="mt-0.5 text-[11px]" style={{ color: "#4b7a5e" }}>
-                  They will be notified and can approve from their Nabil Bank app
+                  They will be notified and can approve from their Nabil Bank
+                  app
                 </p>
               </div>
             ))}
@@ -1630,7 +1653,9 @@ function VouchRequestsTab() {
 
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-500">Requesting</span>
-                <span className="font-semibold text-gray-900">{req.requesting}</span>
+                <span className="font-semibold text-gray-900">
+                  {req.requesting}
+                </span>
               </div>
 
               {vouchStates[i] === "pending" && (
@@ -1653,7 +1678,8 @@ function VouchRequestsTab() {
                   </div>
                   <p className="text-xs text-gray-400">
                     You can vouch for {vouchesRemaining} more merchant
-                    {vouchesRemaining !== 1 ? "s" : ""} ({vouchesGiven} of 5 used)
+                    {vouchesRemaining !== 1 ? "s" : ""} ({vouchesGiven} of 5
+                    used)
                   </p>
                 </>
               )}
@@ -1670,7 +1696,11 @@ function VouchRequestsTab() {
                   {showConfirm[i] && (
                     <div
                       className="rounded-xl px-3 py-3 text-xs leading-relaxed"
-                      style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" }}
+                      style={{
+                        background: "#f0fdf4",
+                        border: "1px solid #bbf7d0",
+                        color: "#166534",
+                      }}
                     >
                       <p className="font-semibold mb-1">Vouch submitted ✓</p>
                       <p>{req.defaultWarning}</p>
@@ -1691,22 +1721,15 @@ function VouchRequestsTab() {
           ))}
         </div>
       </div>
-
     </div>
   );
 }
 
 // ── Merchant Profile (post-submission) ───────────────────────────────────
 
-function MerchantProfileView({
-  name,
-  refId,
-}: {
-  name: string;
-  refId: string;
-}) {
+function MerchantProfileView({ name, refId }: { name: string; refId: string }) {
   const [activeTab, setActiveTab] = useState<"home" | "myLoan" | "vouchScreen">(
-    "home"
+    "home",
   );
 
   return (
@@ -1720,18 +1743,13 @@ function MerchantProfileView({
             <p className="text-white text-sm font-bold leading-none">
               Nabil Bank
             </p>
-            <p
-              className="text-white text-xs mt-0.5"
-              style={{ opacity: 0.75 }}
-            >
+            <p className="text-white text-xs mt-0.5" style={{ opacity: 0.75 }}>
               My TrustLayer Profile
             </p>
           </div>
-          <div
-            className="text-white text-base font-black tracking-tight"
-            style={{ opacity: 0.9 }}
-          >
-            NABIL
+          <div className="flex flex-col items-end">
+            <img src="/trustlayer-logo.png" alt="TrustLayer" style={{ height: '18px', objectFit: 'contain', opacity: 0.9, filter: 'brightness(10)' }} />
+            <span style={{ fontSize: 8, color: 'white', opacity: 0.7, marginTop: 2 }}>Powered by TrustLayer</span>
           </div>
         </div>
       )}
@@ -1903,65 +1921,80 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 // ── VouchScreen ──────────────────────────────────────────────────────────────
 
 function VouchScreen({ onBack }: { onBack: () => void }) {
-  const [searchInput, setSearchInput] = useState("");
-  const [searchResult, setSearchResult] = useState<null | {
-    found: boolean;
-    name?: string;
-    id?: string;
-  }>(null);
-  const [searching, setSearching] = useState(false);
-  const [sentRequests, setSentRequests] = useState<string[]>([]);
-  const [vouchStates, setVouchStates] = useState<VouchState[]>(["pending", "pending"]);
-  const [showConfirm, setShowConfirm] = useState([false, false]);
+  const [panInput, setPanInput] = useState("");
+  const [looking, setLooking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const vouchesGiven = sentRequests.length;
-  const vouchesReceived = 1 + vouchStates.filter((s) => s === "approved").length;
-  const maxVouches = 5;
+  const [lookup, setLookup] = useState<VouchLookupResponse | null>(null);
+  const [incoming, setIncoming] = useState<VouchRequestType[]>([]);
+  const [sent, setSent] = useState<VouchRequestType[]>([]);
+  const [accepted, setAccepted] = useState<VouchRequestType[]>([]);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const MOCK_NAMES: Record<string, string> = {
-    M001: "Sita Sharma", M002: "Bardan Tamang", M003: "Kamala Neupane",
-    M011: "Bikash Shrestha", M012: "Anita Gurung", M013: "Krishna Rai",
-  };
-
-  function handleSearch() {
-    if (!searchInput.trim()) return;
-    setSearching(true);
-    setTimeout(() => {
-      const id = searchInput.trim().toUpperCase();
-      const byName = MOCK_NAMES[id];
-      if (byName || /^\d{9}$/.test(id)) {
-        setSearchResult({ found: true, name: byName ?? "Verified Merchant", id });
+  async function handleLookup() {
+    if (!panInput.trim()) return;
+    setLooking(true);
+    setError(null);
+    setLookup(null);
+    setIncoming([]);
+    setSent([]);
+    setAccepted([]);
+    try {
+      const id = panInput.trim().toUpperCase();
+      const [lookupData, sentData, acceptedData] = await Promise.all([
+        getVouchLookup(id),
+        getSentVouchRequests(id),
+        getAcceptedVouchRequests(id),
+      ]);
+      if (!lookupData.merchant) {
+        setError("Merchant not found. Try M001–M025 or enter a valid Business PAN.");
       } else {
-        setSearchResult({ found: false });
+        setLookup(lookupData);
+        setIncoming(lookupData.requests);
+        setSent(sentData);
+        setAccepted(acceptedData);
       }
-      setSearching(false);
-    }, 1000);
+    } catch {
+      setError("Could not connect to server. Make sure the backend is running.");
+    } finally {
+      setLooking(false);
+    }
   }
 
-  function handleSendRequest() {
-    if (!searchResult?.found || !searchResult.id) return;
-    setSentRequests((prev) => [...prev, searchResult.id!]);
-    setSearchResult(null);
-    setSearchInput("");
+  async function handleRespond(id: number, action: "accept" | "decline") {
+    setActionLoading(id);
+    setActionError(null);
+    try {
+      await respondVouchRequest(id, action, panInput.trim().toUpperCase());
+      if (action === "accept") {
+        const req = incoming.find((r) => r.id === id);
+        if (req) setAccepted((prev) => [...prev, { ...req, status: "accepted" }]);
+        setLookup((prev) => prev ? {
+          ...prev,
+          vouch_stats: { ...prev.vouch_stats, vouches_given: prev.vouch_stats.vouches_given + 1 },
+        } : prev);
+      }
+      setIncoming((prev) =>
+        prev.map((r) => r.id === id ? { ...r, status: action === "accept" ? "accepted" : "declined" } : r)
+      );
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail ?? "Action failed. Try again.");
+    } finally {
+      setActionLoading(null);
+    }
   }
 
-  function approve(i: number) {
-    setVouchStates((prev) => { const n = [...prev]; n[i] = "approved"; return n; });
-    setShowConfirm((prev) => { const n = [...prev]; n[i] = true; return n; });
-  }
-  function decline(i: number) {
-    setVouchStates((prev) => { const n = [...prev]; n[i] = "declined"; return n; });
-  }
-
-  const alreadySent = searchResult?.id ? sentRequests.includes(searchResult.id) : false;
+  const approvedCount = incoming.filter((r) => r.status === "accepted").length;
+  const vouchesGiven = lookup?.vouch_stats?.vouches_given ?? 0;
+  const vouchesReceived = lookup?.vouch_stats?.vouches_received ?? 0;
+  const givenRemaining = Math.max(0, 5 - vouchesGiven);
+  const atGivenLimit = vouchesGiven >= 5;
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#f3f4f6" }}>
       {/* Header */}
-      <div
-        className="shrink-0 px-4 py-3 flex items-center gap-3"
-        style={{ background: NABIL }}
-      >
+      <div className="shrink-0 px-4 py-3 flex items-center gap-3" style={{ background: NABIL }}>
         <button
           onClick={onBack}
           className="w-8 h-8 rounded-full flex items-center justify-center"
@@ -1970,46 +2003,24 @@ function VouchScreen({ onBack }: { onBack: () => void }) {
           <ArrowLeft size={16} className="text-white" />
         </button>
         <p className="flex-1 text-white text-sm font-bold">Vouch Requests</p>
-        <p className="text-white text-sm font-black tracking-tight" style={{ opacity: 0.85 }}>
-          NABIL
-        </p>
+        <div className="flex flex-col items-end">
+          <img src="/trustlayer-logo.png" alt="TrustLayer" style={{ height: '18px', objectFit: 'contain', opacity: 0.9, filter: 'brightness(10)' }} />
+          <span style={{ fontSize: 8, color: 'white', opacity: 0.7, marginTop: 2 }}>Powered by TrustLayer</span>
+        </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
 
-        {/* Stats card */}
-        <div className="bg-white rounded-2xl shadow-sm p-4">
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-lg font-bold text-gray-900">{vouchesGiven} / {maxVouches}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Given</p>
-            </div>
-            <div style={{ borderLeft: "1px solid #f3f4f6", borderRight: "1px solid #f3f4f6" }}>
-              <p className="text-lg font-bold text-gray-900">{vouchesReceived} / {maxVouches}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Received</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold" style={{ color: NABIL }}>
-                {maxVouches - vouchesGiven}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Remaining</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-400 text-center mt-3">
-            You can give up to 5 vouches and receive up to 5
-          </p>
-        </div>
-
-        {/* Send vouch request */}
+        {/* ID lookup */}
         <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-          <p className="text-sm font-bold text-gray-900">Send Vouch Request</p>
+          <p className="text-xs text-gray-500">Enter your Merchant ID or Business PAN to view your vouch activity</p>
           <div className="flex gap-2">
             <input
-              value={searchInput}
-              onChange={(e) => { setSearchInput(e.target.value); setSearchResult(null); }}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="Enter Merchant ID (M001) or Business PAN"
+              value={panInput}
+              onChange={(e) => { setPanInput(e.target.value); setError(null); }}
+              onKeyDown={(e) => e.key === "Enter" && handleLookup()}
+              placeholder="e.g. M012 or Business PAN"
               style={{
                 flex: 1, padding: "9px 14px", borderRadius: 50,
                 border: "1.5px solid #d1d5db", fontSize: 12,
@@ -2019,133 +2030,238 @@ function VouchScreen({ onBack }: { onBack: () => void }) {
               onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
             />
             <button
-              onClick={handleSearch}
-              disabled={searching || !searchInput.trim()}
+              onClick={handleLookup}
+              disabled={looking || !panInput.trim()}
               style={{
                 background: NABIL, color: "white", border: "none",
-                borderRadius: 50, padding: "9px 16px",
+                borderRadius: 50, padding: "9px 18px",
                 fontWeight: 700, fontSize: 12, cursor: "pointer",
-                opacity: searching || !searchInput.trim() ? 0.6 : 1,
+                opacity: looking || !panInput.trim() ? 0.6 : 1,
               }}
             >
-              {searching ? "…" : "Search"}
+              {looking ? "…" : "View"}
             </button>
           </div>
-
-          {searchResult && searchResult.found && (
-            <div
-              className="rounded-xl p-3 space-y-2"
-              style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}
-            >
-              <p className="text-sm font-bold text-gray-900">{searchResult.name}</p>
-              <p className="text-xs text-gray-500">ID: {searchResult.id}</p>
-              {alreadySent ? (
-                <p className="text-xs font-semibold" style={{ color: NABIL }}>
-                  ✓ Request already sent
-                </p>
-              ) : vouchesGiven >= maxVouches ? (
-                <p className="text-xs text-amber-600 font-semibold">
-                  Vouch limit reached (5 of 5)
-                </p>
-              ) : (
-                <button
-                  onClick={handleSendRequest}
-                  className="w-full py-2 rounded-full text-sm font-semibold text-white"
-                  style={{ background: NABIL }}
-                >
-                  Send Vouch Request
-                </button>
-              )}
-            </div>
-          )}
-
-          {searchResult && !searchResult.found && (
-            <p className="text-xs text-red-500">
-              Merchant not found. Check the ID or PAN.
-            </p>
-          )}
-
-          {sentRequests.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {sentRequests.map((id) => (
-                <span
-                  key={id}
-                  className="text-[10px] font-semibold px-3 py-1 rounded-full"
-                  style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}
-                >
-                  ✓ Request sent to {id}
-                </span>
-              ))}
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          {lookup?.merchant && (
+            <div className="flex items-center gap-2 pt-1">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: `${NABIL}18` }}>
+                <Users size={13} color={NABIL} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-900">{lookup.merchant.name}</p>
+                <p className="text-[10px] text-gray-400">{lookup.merchant.business_type} · {lookup.merchant.location}</p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Incoming requests */}
-        <div className="space-y-2">
-          <p className="text-sm font-bold text-gray-900 px-1">
-            Incoming Requests ({MOCK_VOUCH_REQUESTS.length})
-          </p>
-          {MOCK_VOUCH_REQUESTS.map((req, i) => (
-            <div key={i} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-gray-900">{req.name}</p>
-                  <p className="text-xs text-gray-500">{req.business}</p>
+        {lookup?.merchant && (
+          <>
+            {/* Stats */}
+            <div className="bg-white rounded-2xl shadow-sm px-4 py-3 space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="text-center">
+                  <p className="text-base font-bold text-gray-900">{vouchesGiven} / 5</p>
+                  <p className="text-[10px] text-gray-400">Vouches Given</p>
                 </div>
-                <span
-                  className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full"
-                  style={{ background: "#fef9c3", color: "#92400e" }}
-                >
-                  ⭐ {req.trustScore}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">Requesting</span>
-                <span className="font-semibold text-gray-900">{req.requesting}</span>
-              </div>
-              {vouchStates[i] === "pending" && (
-                <>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => approve(i)}
-                      className="flex-1 py-2.5 rounded-full text-sm font-semibold text-white"
-                      style={{ background: NABIL }}
-                    >
-                      Approve Vouch
-                    </button>
-                    <button
-                      onClick={() => decline(i)}
-                      className="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-300 text-gray-600"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    {maxVouches - vouchesReceived} incoming slots remaining
+                <div className="h-8 w-px bg-gray-100" />
+                <div className="text-center">
+                  <p className="text-base font-bold text-gray-900">{vouchesReceived} / 5</p>
+                  <p className="text-[10px] text-gray-400">Vouches Received</p>
+                </div>
+                <div className="h-8 w-px bg-gray-100" />
+                <div className="text-center">
+                  <p className="text-base font-bold" style={{ color: givenRemaining === 0 ? "#ef4444" : NABIL }}>
+                    {givenRemaining}
                   </p>
-                </>
+                  <p className="text-[10px] text-gray-400">Can Give</p>
+                </div>
+              </div>
+              {atGivenLimit && (
+                <div className="rounded-xl px-3 py-2 text-xs font-semibold text-center" style={{ background: "#fee2e2", color: "#991b1b" }}>
+                  You have reached the maximum of 5 vouches given
+                </div>
               )}
-              {vouchStates[i] === "approved" && (
-                <div className="space-y-2">
-                  <button disabled className="w-full py-2.5 rounded-full text-sm font-semibold text-white" style={{ background: NABIL, opacity: 0.85 }}>
-                    Vouched ✓
-                  </button>
-                  {showConfirm[i] && (
-                    <div className="rounded-xl px-3 py-3 text-xs leading-relaxed" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" }}>
-                      <p className="font-semibold mb-1">Vouch submitted ✓</p>
-                      <p>{req.defaultWarning}</p>
+            </div>
+
+            {/* Incoming */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-900 px-1">
+                Incoming Vouch Requests ({incoming.length})
+              </p>
+              {incoming.length === 0 && (
+                <p className="text-xs text-gray-400 px-1">No pending vouch requests.</p>
+              )}
+              {incoming.map((req) => (
+                <div key={req.id} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-gray-900">{req.requester_name}</p>
+                      <p className="text-xs text-gray-500">{req.business_type} · {req.location}</p>
+                    </div>
+                    <span className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full" style={{ background: "#fef9c3", color: "#92400e" }}>
+                      {req.months_active}mo active
+                    </span>
+                  </div>
+                  {req.requested_loan_npr && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Loan requested</span>
+                      <span className="font-semibold text-gray-900">NPR {req.requested_loan_npr.toLocaleString("en-IN")}</span>
                     </div>
                   )}
+                  {req.status === "pending" && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleRespond(req.id, "accept")}
+                          disabled={actionLoading === req.id || atGivenLimit}
+                          className="flex-1 py-2.5 rounded-full text-sm font-semibold text-white"
+                          style={{ background: NABIL, opacity: (actionLoading === req.id || atGivenLimit) ? 0.4 : 1 }}
+                        >
+                          {atGivenLimit ? "Limit Reached" : "Approve Vouch"}
+                        </button>
+                        <button
+                          onClick={() => handleRespond(req.id, "decline")}
+                          disabled={actionLoading === req.id}
+                          className="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-300 text-gray-600"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                      {atGivenLimit && (
+                        <p className="text-[10px] text-red-500 text-center">You've given 5 vouches — the maximum allowed</p>
+                      )}
+                      {actionError && (
+                        <p className="text-[10px] text-red-500 text-center">{actionError}</p>
+                      )}
+                    </div>
+                  )}
+                  {req.status === "accepted" && (
+                    <div className="space-y-2">
+                      <button disabled className="w-full py-2 rounded-full text-sm font-semibold text-white" style={{ background: NABIL, opacity: 0.85 }}>
+                        Vouched ✓
+                      </button>
+                      <div className="rounded-xl p-3 space-y-2" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: NABIL }}>You vouched for</p>
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${NABIL}20` }}>
+                            <Users size={14} color={NABIL} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">{req.requester_name}</p>
+                            <p className="text-xs text-gray-500">{req.business_type} · {req.location}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="bg-white rounded-lg px-2 py-1.5">
+                            <p className="text-[10px] text-gray-400">Months Active</p>
+                            <p className="text-xs font-semibold text-gray-900">{req.months_active} months</p>
+                          </div>
+                          <div className="bg-white rounded-lg px-2 py-1.5">
+                            <p className="text-[10px] text-gray-400">Loan Requested</p>
+                            <p className="text-xs font-semibold text-gray-900">
+                              {req.requested_loan_npr ? `NPR ${req.requested_loan_npr.toLocaleString("en-IN")}` : "—"}
+                            </p>
+                          </div>
+                          {req.loan_purpose && (
+                            <div className="col-span-2 bg-white rounded-lg px-2 py-1.5">
+                              <p className="text-[10px] text-gray-400">Loan Purpose</p>
+                              <p className="text-xs font-semibold text-gray-900">{req.loan_purpose}</p>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-snug pt-1">
+                          If this merchant defaults, your TrustLayer trust score will be reduced by 30% of vouch weight.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {req.status === "declined" && (
+                    <button disabled className="w-full py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-400">
+                      Declined
+                    </button>
+                  )}
                 </div>
-              )}
-              {vouchStates[i] === "declined" && (
-                <button disabled className="w-full py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-400">
-                  Declined
-                </button>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+
+            {/* Sent out */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-900 px-1">
+                Vouches I Requested ({sent.length})
+              </p>
+              {sent.length === 0 && (
+                <p className="text-xs text-gray-400 px-1">You haven't sent any vouch requests yet.</p>
+              )}
+              {sent.map((r) => (
+                <div key={r.id} className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{r.requester_name}</p>
+                    <p className="text-xs text-gray-500">To: {r.voucher_pan ?? r.requester_id}</p>
+                  </div>
+                  <span
+                    className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                    style={
+                      r.status === "accepted"
+                        ? { background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }
+                        : r.status === "declined"
+                        ? { background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5" }
+                        : { background: "#fef9c3", color: "#92400e", border: "1px solid #fde68a" }
+                    }
+                  >
+                    {r.status === "accepted" ? "✓ Approved" : r.status === "declined" ? "Declined" : "Pending"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* People I vouched for (accepted history) */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-900 px-1">
+                People I Vouched For ({accepted.length})
+              </p>
+              {accepted.length === 0 && (
+                <p className="text-xs text-gray-400 px-1">You haven't vouched for anyone yet.</p>
+              )}
+              {accepted.map((r) => (
+                <div key={r.id} className="rounded-2xl shadow-sm p-4 space-y-2" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${NABIL}20` }}>
+                      <Users size={14} color={NABIL} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900">{r.requester_name}</p>
+                      <p className="text-xs text-gray-500">{r.business_type} · {r.location}</p>
+                    </div>
+                    <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: NABIL, color: "white" }}>Vouched ✓</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white rounded-lg px-2 py-1.5">
+                      <p className="text-[10px] text-gray-400">Months Active</p>
+                      <p className="text-xs font-semibold text-gray-900">{r.months_active} months</p>
+                    </div>
+                    <div className="bg-white rounded-lg px-2 py-1.5">
+                      <p className="text-[10px] text-gray-400">Loan Requested</p>
+                      <p className="text-xs font-semibold text-gray-900">
+                        {r.requested_loan_npr ? `NPR ${r.requested_loan_npr.toLocaleString("en-IN")}` : "—"}
+                      </p>
+                    </div>
+                    {r.loan_purpose && (
+                      <div className="col-span-2 bg-white rounded-lg px-2 py-1.5">
+                        <p className="text-[10px] text-gray-400">Loan Purpose</p>
+                        <p className="text-xs font-semibold text-gray-900">{r.loan_purpose}</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-500 leading-snug">
+                    Your reputation is linked to this merchant. If they default, your TrustLayer trust score may be affected.
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
       </div>
     </div>
@@ -2178,7 +2294,12 @@ const SERVICE_ITEMS: {
     color: "#ffffff",
     highlight: true,
   },
-  { icon: <Users size={18} />, label: "Vouch Requests", color: "#6366f1", vouchHighlight: true },
+  {
+    icon: <Users size={18} />,
+    label: "Vouch Requests",
+    color: "#6366f1",
+    vouchHighlight: true,
+  },
   { icon: <PiggyBank size={18} />, label: "Fixed Deposit", color: "#f59e0b" },
   { icon: <ArrowUpRight size={18} />, label: "Send Money", color: "#10b981" },
   { icon: <LayoutGrid size={18} />, label: "More Services", color: "#9ca3af" },
@@ -2293,46 +2414,69 @@ function NabilHome({
         {/* Services grid */}
         <div className="bg-white rounded-2xl shadow-sm p-3">
           <div className="grid grid-cols-4 gap-0.5">
-            {SERVICE_ITEMS.map(({ icon, label, color, highlight, vouchHighlight, onClick }) => (
-              <button
-                key={label}
-                onClick={
-                  highlight ? onApplyLoan
-                  : vouchHighlight ? onVouchRequests
-                  : onClick
-                }
-                className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl active:opacity-70 transition-opacity"
-                style={
-                  highlight ? { background: "#f0fdf4" }
-                  : vouchHighlight ? { background: "#eef2ff" }
-                  : undefined
-                }
-              >
-                <div
-                  className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm"
+            {SERVICE_ITEMS.map(
+              ({ icon, label, color, highlight, vouchHighlight, onClick }) => (
+                <button
+                  key={label}
+                  onClick={
+                    highlight
+                      ? onApplyLoan
+                      : vouchHighlight
+                        ? onVouchRequests
+                        : onClick
+                  }
+                  className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl active:opacity-70 transition-opacity"
                   style={
                     highlight
-                      ? { background: NABIL, boxShadow: `0 4px 14px ${NABIL}50` }
+                      ? { background: "#f0fdf4" }
                       : vouchHighlight
-                      ? { background: "#6366f1", boxShadow: "0 4px 14px #6366f150" }
-                      : { background: `${color}18`, border: `1px solid ${color}28` }
+                        ? { background: "#eef2ff" }
+                        : undefined
                   }
                 >
-                  <span style={{ color: highlight || vouchHighlight ? "#fff" : color }}>
-                    {icon}
-                  </span>
-                </div>
-                <p
-                  className="text-[9.5px] text-center leading-tight"
-                  style={{
-                    color: highlight ? NABIL : vouchHighlight ? "#6366f1" : "#374151",
-                    fontWeight: highlight || vouchHighlight ? 700 : 500,
-                  }}
-                >
-                  {label}
-                </p>
-              </button>
-            ))}
+                  <div
+                    className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm"
+                    style={
+                      highlight
+                        ? {
+                            background: NABIL,
+                            boxShadow: `0 4px 14px ${NABIL}50`,
+                          }
+                        : vouchHighlight
+                          ? {
+                              background: "#6366f1",
+                              boxShadow: "0 4px 14px #6366f150",
+                            }
+                          : {
+                              background: `${color}18`,
+                              border: `1px solid ${color}28`,
+                            }
+                    }
+                  >
+                    <span
+                      style={{
+                        color: highlight || vouchHighlight ? "#fff" : color,
+                      }}
+                    >
+                      {icon}
+                    </span>
+                  </div>
+                  <p
+                    className="text-[9.5px] text-center leading-tight"
+                    style={{
+                      color: highlight
+                        ? NABIL
+                        : vouchHighlight
+                          ? "#6366f1"
+                          : "#374151",
+                      fontWeight: highlight || vouchHighlight ? 700 : 500,
+                    }}
+                  >
+                    {label}
+                  </p>
+                </button>
+              ),
+            )}
           </div>
           <button
             className="w-full mt-2 pt-2.5 border-t border-gray-100 text-xs text-center font-semibold flex items-center justify-center gap-1.5"
@@ -2514,7 +2658,10 @@ export default function MerchantOnboarding() {
   ) : showVouchFromLanding ? (
     <VouchScreen onBack={() => setShowVouchFromLanding(false)} />
   ) : showLanding ? (
-    <NabilHome onApplyLoan={() => setShowLanding(false)} onVouchRequests={() => setShowVouchFromLanding(true)} />
+    <NabilHome
+      onApplyLoan={() => setShowLanding(false)}
+      onVouchRequests={() => setShowVouchFromLanding(true)}
+    />
   ) : (
     <div className="flex flex-col h-full" style={{ background: "white" }}>
       {/* Nabil Bank form header */}
@@ -2539,11 +2686,9 @@ export default function MerchantOnboarding() {
             Nabil Bank Limited
           </p>
         </div>
-        <div
-          className="text-white text-base font-black tracking-tight"
-          style={{ opacity: 0.9 }}
-        >
-          NABIL
+        <div className="flex flex-col items-end">
+          <img src="/trustlayer-logo.png" alt="TrustLayer" style={{ height: '18px', objectFit: 'contain', opacity: 0.9, filter: 'brightness(10)' }} />
+          <span style={{ fontSize: 8, color: 'white', opacity: 0.7, marginTop: 2 }}>Powered by TrustLayer</span>
         </div>
       </div>
 

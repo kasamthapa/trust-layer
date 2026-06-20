@@ -180,15 +180,7 @@ function Header({ health }: { health: HealthResponse | null }) {
 
       {/* Logo */}
       <Link to="/" className="flex items-center gap-2.5 no-underline shrink-0">
-        <div className="w-6 h-6 rounded bg-[#111827] border border-[#1f2937] flex items-center justify-center">
-          <Shield size={13} className="text-[#6366f1]" />
-        </div>
-        <div className="flex flex-col leading-none">
-          <span className="font-semibold text-white text-sm">TrustLayer</span>
-          <span className="text-[9px] text-[#6b7280] tracking-[0.15em] uppercase">
-            Credit Middleware v1.0
-          </span>
-        </div>
+        <img src="/trustlayer-logo.png" alt="TrustLayer" style={{ height: '32px', objectFit: 'contain' }} />
       </Link>
 
       {/* Nav */}

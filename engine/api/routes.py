@@ -616,6 +616,98 @@ def get_vouch_lookup(query: str) -> VouchLookupResponse:
     )
 
 
+@router.get("/vouch-requests/accepted", response_model=list[VouchRequest])
+def get_accepted_vouch_requests(identifier: str) -> list[VouchRequest]:
+    """Return vouch requests this merchant has accepted (vouched for)."""
+    from src.database import get_connection
+    conn = get_connection()
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        identifiers = {identifier.strip().upper()}
+        merchant = _find_merchant_by_identifier(identifier)
+        if merchant:
+            for key in ("business_pan", "id", "phone"):
+                val = merchant.get(key)
+                if val:
+                    identifiers.add(str(val))
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT vr.id, vr.requester_id, vr.status,
+                       to_char(vr.created_at, 'YYYY-MM-DD HH24:MI:SS'),
+                       m.name, m.business_type, m.location,
+                       m.months_active, m.cashflow_monthly_npr, m.requested_loan_npr,
+                       m.loan_purpose
+                FROM vouch_requests vr
+                JOIN merchants m ON m.id = vr.requester_id
+                WHERE vr.voucher_pan = ANY(%s) AND vr.status = 'accepted'
+                ORDER BY vr.created_at DESC
+                """,
+                (list(identifiers),),
+            )
+            rows = cur.fetchall()
+        conn.close()
+        return [
+            VouchRequest(
+                id=r[0], requester_id=r[1], status=r[2], created_at=r[3],
+                requester_name=r[4], business_type=r[5], location=r[6],
+                months_active=r[7], cashflow_monthly_npr=r[8],
+                requested_loan_npr=r[9], loan_purpose=r[10],
+            )
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.error("get_accepted_vouch_requests failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/vouch-requests/sent", response_model=list[VouchRequest])
+def get_sent_vouch_requests(merchant_id: str) -> list[VouchRequest]:
+    """Return vouch requests sent BY a given merchant (their outgoing requests)."""
+    from src.database import get_connection
+    conn = get_connection()
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT vr.id, vr.requester_id, vr.status,
+                       to_char(vr.created_at, 'YYYY-MM-DD HH24:MI:SS'),
+                       m.name, m.business_type, m.location,
+                       m.months_active, m.cashflow_monthly_npr, m.requested_loan_npr,
+                       m.loan_purpose
+                FROM vouch_requests vr
+                JOIN merchants m ON m.id = vr.requester_id
+                WHERE vr.requester_id = %s
+                ORDER BY vr.created_at DESC
+                """,
+                (merchant_id.strip().upper(),),
+            )
+            rows = cur.fetchall()
+        conn.close()
+        return [
+            VouchRequest(
+                id=r[0],
+                requester_id=r[1],
+                status=r[2],
+                created_at=r[3],
+                requester_name=r[4],
+                business_type=r[5],
+                location=r[6],
+                months_active=r[7],
+                cashflow_monthly_npr=r[8],
+                requested_loan_npr=r[9],
+                loan_purpose=r[10],
+            )
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.error("get_sent_vouch_requests failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/vouch-requests/{request_id}/respond")
 def respond_vouch_request(request_id: int, body: VouchRespondRequest):
     """Accept or decline a vouch request. Accepting creates a vouch record."""
@@ -651,11 +743,17 @@ def respond_vouch_request(request_id: int, body: VouchRespondRequest):
                     (body.action + "d", request_id),
                 )
                 if body.action == "accept" and voucher_row:
+                    voucher_id = voucher_row[0]
+                    # Check voucher hasn't exceeded the given limit
+                    cur.execute("SELECT COUNT(*) FROM vouches WHERE from_id = %s", (voucher_id,))
+                    given_count = cur.fetchone()[0]
+                    if given_count >= MAX_VOUCHES_GIVEN:
+                        raise HTTPException(status_code=409, detail=f"You have reached the maximum of {MAX_VOUCHES_GIVEN} vouches given")
+                    # Check requester hasn't exceeded the received limit
                     cur.execute("SELECT COUNT(*) FROM vouches WHERE to_id = %s", (requester_id,))
                     received_count = cur.fetchone()[0]
                     if received_count >= MAX_VOUCHES_RECEIVED:
-                        raise HTTPException(status_code=409, detail="Requester has reached the maximum received voucher limit")
-                    voucher_id = voucher_row[0]
+                        raise HTTPException(status_code=409, detail=f"This merchant has already received the maximum of {MAX_VOUCHES_RECEIVED} vouches")
                     cur.execute(
                         "INSERT INTO vouches (from_id, to_id, weight, note) VALUES (%s, %s, %s, %s)",
                         (voucher_id, requester_id, 1.0, "Peer vouch via TrustLayer"),

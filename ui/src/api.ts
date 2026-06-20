@@ -123,6 +123,16 @@ export async function getVouchRequests(pan: string): Promise<VouchRequest[]> {
   return res.data
 }
 
+export async function getSentVouchRequests(merchant_id: string): Promise<VouchRequest[]> {
+  const res = await client.get<VouchRequest[]>('/api/v1/vouch-requests/sent', { params: { merchant_id } })
+  return res.data
+}
+
+export async function getAcceptedVouchRequests(identifier: string): Promise<VouchRequest[]> {
+  const res = await client.get<VouchRequest[]>('/api/v1/vouch-requests/accepted', { params: { identifier } })
+  return res.data
+}
+
 export async function getVouchLookup(query: string): Promise<VouchLookupResponse> {
   const res = await client.get<VouchLookupResponse>('/api/v1/vouch-lookup', { params: { query } })
   return res.data
