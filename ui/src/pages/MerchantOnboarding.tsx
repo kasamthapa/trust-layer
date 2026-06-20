@@ -1556,6 +1556,8 @@ function VouchRequestsTab() {
                 borderRadius: 50,
                 border: "1.5px solid #d1d5db",
                 fontSize: 12,
+                color: "#111827",
+                background: "white",
                 outline: "none",
                 opacity: sending ? 0.6 : 1,
               }}
@@ -1703,13 +1705,13 @@ function MerchantProfileView({
   name: string;
   refId: string;
 }) {
-  const [activeTab, setActiveTab] = useState<"home" | "myLoan" | "vouch">(
-    "myLoan"
+  const [activeTab, setActiveTab] = useState<"home" | "myLoan" | "vouchScreen">(
+    "home"
   );
 
   return (
     <div className="flex flex-col h-full">
-      {activeTab !== "home" && (
+      {activeTab !== "home" && activeTab !== "vouchScreen" && (
         <div
           className="shrink-0 px-4 py-3 flex items-center gap-3"
           style={{ background: NABIL }}
@@ -1741,53 +1743,49 @@ function MerchantProfileView({
         {activeTab === "home" && (
           <NabilHome
             onApplyLoan={() => setActiveTab("myLoan")}
+            onVouchRequests={() => setActiveTab("vouchScreen")}
             hideBottomNav
           />
         )}
         {activeTab === "myLoan" && <MyLoanTab name={name} refId={refId} />}
-        {activeTab === "vouch" && <VouchRequestsTab />}
+        {activeTab === "vouchScreen" && (
+          <VouchScreen onBack={() => setActiveTab("home")} />
+        )}
       </div>
 
-      <div className="shrink-0 bg-white border-t border-gray-100 flex items-center">
-        {(
-          [
-            { tab: "home", icon: <Home size={20} />, label: "Home" },
-            {
-              tab: "myLoan",
-              icon: <Banknote size={20} />,
-              label: "My Loan",
-            },
-            {
-              tab: "vouch",
-              icon: <Users size={20} />,
-              label: "Vouch Requests",
-            },
-          ] as {
-            tab: "home" | "myLoan" | "vouch";
-            icon: React.ReactNode;
-            label: string;
-          }[]
-        ).map(({ tab, icon, label }) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className="flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors"
-          >
-            <span style={{ color: activeTab === tab ? NABIL : "#9ca3af" }}>
-              {icon}
-            </span>
-            <span
-              className="text-[10px]"
-              style={{
-                color: activeTab === tab ? NABIL : "#9ca3af",
-                fontWeight: activeTab === tab ? 700 : 500,
-              }}
+      {activeTab !== "vouchScreen" && (
+        <div className="shrink-0 bg-white border-t border-gray-100 flex items-center">
+          {(
+            [
+              { tab: "home", icon: <Home size={20} />, label: "Home" },
+              { tab: "myLoan", icon: <Banknote size={20} />, label: "My Loan" },
+            ] as {
+              tab: "home" | "myLoan";
+              icon: React.ReactNode;
+              label: string;
+            }[]
+          ).map(({ tab, icon, label }) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors"
             >
-              {label}
-            </span>
-          </button>
-        ))}
-      </div>
+              <span style={{ color: activeTab === tab ? NABIL : "#9ca3af" }}>
+                {icon}
+              </span>
+              <span
+                className="text-[10px]"
+                style={{
+                  color: activeTab === tab ? NABIL : "#9ca3af",
+                  fontWeight: activeTab === tab ? 700 : 500,
+                }}
+              >
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1902,11 +1900,264 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 
 // ── Nabil Bank Home landing screen ───────────────────────────────────────
 
+// ── VouchScreen ──────────────────────────────────────────────────────────────
+
+function VouchScreen({ onBack }: { onBack: () => void }) {
+  const [searchInput, setSearchInput] = useState("");
+  const [searchResult, setSearchResult] = useState<null | {
+    found: boolean;
+    name?: string;
+    id?: string;
+  }>(null);
+  const [searching, setSearching] = useState(false);
+  const [sentRequests, setSentRequests] = useState<string[]>([]);
+  const [vouchStates, setVouchStates] = useState<VouchState[]>(["pending", "pending"]);
+  const [showConfirm, setShowConfirm] = useState([false, false]);
+
+  const vouchesGiven = sentRequests.length;
+  const vouchesReceived = 1 + vouchStates.filter((s) => s === "approved").length;
+  const maxVouches = 5;
+
+  const MOCK_NAMES: Record<string, string> = {
+    M001: "Sita Sharma", M002: "Bardan Tamang", M003: "Kamala Neupane",
+    M011: "Bikash Shrestha", M012: "Anita Gurung", M013: "Krishna Rai",
+  };
+
+  function handleSearch() {
+    if (!searchInput.trim()) return;
+    setSearching(true);
+    setTimeout(() => {
+      const id = searchInput.trim().toUpperCase();
+      const byName = MOCK_NAMES[id];
+      if (byName || /^\d{9}$/.test(id)) {
+        setSearchResult({ found: true, name: byName ?? "Verified Merchant", id });
+      } else {
+        setSearchResult({ found: false });
+      }
+      setSearching(false);
+    }, 1000);
+  }
+
+  function handleSendRequest() {
+    if (!searchResult?.found || !searchResult.id) return;
+    setSentRequests((prev) => [...prev, searchResult.id!]);
+    setSearchResult(null);
+    setSearchInput("");
+  }
+
+  function approve(i: number) {
+    setVouchStates((prev) => { const n = [...prev]; n[i] = "approved"; return n; });
+    setShowConfirm((prev) => { const n = [...prev]; n[i] = true; return n; });
+  }
+  function decline(i: number) {
+    setVouchStates((prev) => { const n = [...prev]; n[i] = "declined"; return n; });
+  }
+
+  const alreadySent = searchResult?.id ? sentRequests.includes(searchResult.id) : false;
+
+  return (
+    <div className="flex flex-col h-full" style={{ background: "#f3f4f6" }}>
+      {/* Header */}
+      <div
+        className="shrink-0 px-4 py-3 flex items-center gap-3"
+        style={{ background: NABIL }}
+      >
+        <button
+          onClick={onBack}
+          className="w-8 h-8 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(255,255,255,0.2)" }}
+        >
+          <ArrowLeft size={16} className="text-white" />
+        </button>
+        <p className="flex-1 text-white text-sm font-bold">Vouch Requests</p>
+        <p className="text-white text-sm font-black tracking-tight" style={{ opacity: 0.85 }}>
+          NABIL
+        </p>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+
+        {/* Stats card */}
+        <div className="bg-white rounded-2xl shadow-sm p-4">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-lg font-bold text-gray-900">{vouchesGiven} / {maxVouches}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Given</p>
+            </div>
+            <div style={{ borderLeft: "1px solid #f3f4f6", borderRight: "1px solid #f3f4f6" }}>
+              <p className="text-lg font-bold text-gray-900">{vouchesReceived} / {maxVouches}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Received</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold" style={{ color: NABIL }}>
+                {maxVouches - vouchesGiven}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Remaining</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 text-center mt-3">
+            You can give up to 5 vouches and receive up to 5
+          </p>
+        </div>
+
+        {/* Send vouch request */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+          <p className="text-sm font-bold text-gray-900">Send Vouch Request</p>
+          <div className="flex gap-2">
+            <input
+              value={searchInput}
+              onChange={(e) => { setSearchInput(e.target.value); setSearchResult(null); }}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              placeholder="Enter Merchant ID (M001) or Business PAN"
+              style={{
+                flex: 1, padding: "9px 14px", borderRadius: 50,
+                border: "1.5px solid #d1d5db", fontSize: 12,
+                color: "#111827", background: "white", outline: "none",
+              }}
+              onFocus={(e) => (e.target.style.borderColor = NABIL)}
+              onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
+            />
+            <button
+              onClick={handleSearch}
+              disabled={searching || !searchInput.trim()}
+              style={{
+                background: NABIL, color: "white", border: "none",
+                borderRadius: 50, padding: "9px 16px",
+                fontWeight: 700, fontSize: 12, cursor: "pointer",
+                opacity: searching || !searchInput.trim() ? 0.6 : 1,
+              }}
+            >
+              {searching ? "…" : "Search"}
+            </button>
+          </div>
+
+          {searchResult && searchResult.found && (
+            <div
+              className="rounded-xl p-3 space-y-2"
+              style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}
+            >
+              <p className="text-sm font-bold text-gray-900">{searchResult.name}</p>
+              <p className="text-xs text-gray-500">ID: {searchResult.id}</p>
+              {alreadySent ? (
+                <p className="text-xs font-semibold" style={{ color: NABIL }}>
+                  ✓ Request already sent
+                </p>
+              ) : vouchesGiven >= maxVouches ? (
+                <p className="text-xs text-amber-600 font-semibold">
+                  Vouch limit reached (5 of 5)
+                </p>
+              ) : (
+                <button
+                  onClick={handleSendRequest}
+                  className="w-full py-2 rounded-full text-sm font-semibold text-white"
+                  style={{ background: NABIL }}
+                >
+                  Send Vouch Request
+                </button>
+              )}
+            </div>
+          )}
+
+          {searchResult && !searchResult.found && (
+            <p className="text-xs text-red-500">
+              Merchant not found. Check the ID or PAN.
+            </p>
+          )}
+
+          {sentRequests.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {sentRequests.map((id) => (
+                <span
+                  key={id}
+                  className="text-[10px] font-semibold px-3 py-1 rounded-full"
+                  style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}
+                >
+                  ✓ Request sent to {id}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Incoming requests */}
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-gray-900 px-1">
+            Incoming Requests ({MOCK_VOUCH_REQUESTS.length})
+          </p>
+          {MOCK_VOUCH_REQUESTS.map((req, i) => (
+            <div key={i} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{req.name}</p>
+                  <p className="text-xs text-gray-500">{req.business}</p>
+                </div>
+                <span
+                  className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full"
+                  style={{ background: "#fef9c3", color: "#92400e" }}
+                >
+                  ⭐ {req.trustScore}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Requesting</span>
+                <span className="font-semibold text-gray-900">{req.requesting}</span>
+              </div>
+              {vouchStates[i] === "pending" && (
+                <>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => approve(i)}
+                      className="flex-1 py-2.5 rounded-full text-sm font-semibold text-white"
+                      style={{ background: NABIL }}
+                    >
+                      Approve Vouch
+                    </button>
+                    <button
+                      onClick={() => decline(i)}
+                      className="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-300 text-gray-600"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    {maxVouches - vouchesReceived} incoming slots remaining
+                  </p>
+                </>
+              )}
+              {vouchStates[i] === "approved" && (
+                <div className="space-y-2">
+                  <button disabled className="w-full py-2.5 rounded-full text-sm font-semibold text-white" style={{ background: NABIL, opacity: 0.85 }}>
+                    Vouched ✓
+                  </button>
+                  {showConfirm[i] && (
+                    <div className="rounded-xl px-3 py-3 text-xs leading-relaxed" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" }}>
+                      <p className="font-semibold mb-1">Vouch submitted ✓</p>
+                      <p>{req.defaultWarning}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {vouchStates[i] === "declined" && (
+                <button disabled className="w-full py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-400">
+                  Declined
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 const SERVICE_ITEMS: {
   icon: React.ReactNode;
   label: string;
   color: string;
   highlight?: boolean;
+  vouchHighlight?: boolean;
   onClick?: () => void;
 }[] = [
   { icon: <Landmark size={18} />, label: "My Accounts", color: "#6366f1" },
@@ -1927,6 +2178,7 @@ const SERVICE_ITEMS: {
     color: "#ffffff",
     highlight: true,
   },
+  { icon: <Users size={18} />, label: "Vouch Requests", color: "#6366f1", vouchHighlight: true },
   { icon: <PiggyBank size={18} />, label: "Fixed Deposit", color: "#f59e0b" },
   { icon: <ArrowUpRight size={18} />, label: "Send Money", color: "#10b981" },
   { icon: <LayoutGrid size={18} />, label: "More Services", color: "#9ca3af" },
@@ -1973,9 +2225,11 @@ const RECENT_TXN = [
 
 function NabilHome({
   onApplyLoan,
+  onVouchRequests,
   hideBottomNav = false,
 }: {
   onApplyLoan: () => void;
+  onVouchRequests: () => void;
   hideBottomNav?: boolean;
 }) {
   return (
@@ -2039,36 +2293,40 @@ function NabilHome({
         {/* Services grid */}
         <div className="bg-white rounded-2xl shadow-sm p-3">
           <div className="grid grid-cols-4 gap-0.5">
-            {SERVICE_ITEMS.map(({ icon, label, color, highlight, onClick }) => (
+            {SERVICE_ITEMS.map(({ icon, label, color, highlight, vouchHighlight, onClick }) => (
               <button
                 key={label}
-                onClick={highlight ? onApplyLoan : onClick}
+                onClick={
+                  highlight ? onApplyLoan
+                  : vouchHighlight ? onVouchRequests
+                  : onClick
+                }
                 className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl active:opacity-70 transition-opacity"
-                style={highlight ? { background: "#f0fdf4" } : undefined}
+                style={
+                  highlight ? { background: "#f0fdf4" }
+                  : vouchHighlight ? { background: "#eef2ff" }
+                  : undefined
+                }
               >
                 <div
                   className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm"
                   style={
                     highlight
-                      ? {
-                          background: NABIL,
-                          boxShadow: `0 4px 14px ${NABIL}50`,
-                        }
-                      : {
-                          background: `${color}18`,
-                          border: `1px solid ${color}28`,
-                        }
+                      ? { background: NABIL, boxShadow: `0 4px 14px ${NABIL}50` }
+                      : vouchHighlight
+                      ? { background: "#6366f1", boxShadow: "0 4px 14px #6366f150" }
+                      : { background: `${color}18`, border: `1px solid ${color}28` }
                   }
                 >
-                  <span style={{ color: highlight ? "#fff" : color }}>
+                  <span style={{ color: highlight || vouchHighlight ? "#fff" : color }}>
                     {icon}
                   </span>
                 </div>
                 <p
                   className="text-[9.5px] text-center leading-tight"
                   style={{
-                    color: highlight ? NABIL : "#374151",
-                    fontWeight: highlight ? 700 : 500,
+                    color: highlight ? NABIL : vouchHighlight ? "#6366f1" : "#374151",
+                    fontWeight: highlight || vouchHighlight ? 700 : 500,
                   }}
                 >
                   {label}
@@ -2165,6 +2423,7 @@ function NabilHome({
 export default function MerchantOnboarding() {
   const { refreshData } = useAppState();
   const [showLanding, setShowLanding] = useState(true);
+  const [showVouchFromLanding, setShowVouchFromLanding] = useState(false);
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -2252,8 +2511,10 @@ export default function MerchantOnboarding() {
   // Inner content — shown inside the phone frame
   const phoneContent = submitted ? (
     <MerchantProfileView name={profile.name} refId={referenceId} />
+  ) : showVouchFromLanding ? (
+    <VouchScreen onBack={() => setShowVouchFromLanding(false)} />
   ) : showLanding ? (
-    <NabilHome onApplyLoan={() => setShowLanding(false)} />
+    <NabilHome onApplyLoan={() => setShowLanding(false)} onVouchRequests={() => setShowVouchFromLanding(true)} />
   ) : (
     <div className="flex flex-col h-full" style={{ background: "white" }}>
       {/* Nabil Bank form header */}
