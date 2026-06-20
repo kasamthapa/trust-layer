@@ -1032,7 +1032,7 @@ function Step2({
     bank: "idle",
   });
 
-  function handleConnected(id: SourceId, _meta?: { filename?: string }) {
+  function handleConnected(id: SourceId) {
     setStates((s) => ({ ...s, [id]: "connected" }));
     setData((d) => {
       const next = { ...d, connected_sources: [...d.connected_sources, id] };
